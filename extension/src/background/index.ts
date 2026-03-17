@@ -16,7 +16,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "ANALYZE_JOB") {
     console.log(
-      "[JobScout BG] Received ANALYZE_JOB message for:",
+      "[JobScout BG] Received ANALYZE_JOB for:",
       message.payload.job_title,
     );
 
@@ -32,6 +32,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         console.error("[JobScout BG] Analysis failed:", err);
         sendResponse({ success: false, error: err.message });
       });
+
+    return true;
+  }
+
+  if (message.type === "GET_SCORE") {
+    console.log("[JobScout BG] Received GET_SCORE for url:", message.url);
+
+    chrome.storage.local.get(`score_${message.url}`, (data) => {
+      const key = `score_${message.url}`;
+      if (data[key]) {
+        console.log("[JobScout BG] Score found in storage");
+        sendResponse({ success: true, data: data[key] });
+      } else {
+        console.log("[JobScout BG] No score found for this URL");
+        sendResponse({ success: false });
+      }
+    });
 
     return true;
   }

@@ -17,6 +17,7 @@ interface AnalyzeResponse {
 }
 
 let analysisInProgress = false;
+let lastAnalyzedUrl = "";
 
 function extractLinkedInJob(): {
   jobTitle: string;
@@ -66,8 +67,15 @@ function extractLinkedInJob(): {
 }
 
 async function analyzeJob(): Promise<void> {
+  const currentUrl = window.location.href;
+
   if (analysisInProgress) {
     console.log("[JobScout] Analysis already in progress, skipping");
+    return;
+  }
+
+  if (lastAnalyzedUrl === currentUrl) {
+    console.log("[JobScout] Already analyzed this URL, skipping");
     return;
   }
 
@@ -78,7 +86,8 @@ async function analyzeJob(): Promise<void> {
   }
 
   analysisInProgress = true;
-  console.log("[JobScout] Sending to background worker...");
+  lastAnalyzedUrl = currentUrl;
+  console.log("[JobScout] Sending to background worker for:", currentUrl);
 
   chrome.runtime.sendMessage(
     {
@@ -87,7 +96,7 @@ async function analyzeJob(): Promise<void> {
         job_title: data.jobTitle,
         company: data.company,
         job_description: data.jobDescription,
-        url: window.location.href,
+        url: currentUrl,
       },
     },
     (response) => {
@@ -98,48 +107,94 @@ async function analyzeJob(): Promise<void> {
           "[JobScout] Message error:",
           chrome.runtime.lastError.message,
         );
+        lastAnalyzedUrl = "";
         return;
       }
 
       if (!response.success) {
         console.error("[JobScout] Backend error:", response.error);
+        lastAnalyzedUrl = "";
         return;
       }
 
       const result: AnalyzeResponse = response.data;
 
+      chrome.storage.local.set(
+        {
+          [`score_${currentUrl}`]: {
+            result,
+            jobTitle: data.jobTitle,
+            company: data.company,
+            timestamp: Date.now(),
+          },
+        },
+        () => {
+          console.log("[JobScout] Score saved to storage for:", currentUrl);
+        },
+      );
+
       console.log("[JobScout] ===== SCORE RESULT =====");
       console.log(`[JobScout] Fit Score:    ${result.fit_score}/100`);
       console.log(`[JobScout] Should Apply: ${result.should_apply}`);
       console.log(`[JobScout] Verdict:      ${result.one_line_verdict}`);
-      console.log("[JobScout] Direct Matches:", result.direct_matches);
-      console.log("[JobScout] Transferable:", result.transferable);
-      console.log("[JobScout] Gaps:", result.gaps);
-      console.log("[JobScout] Green Flags:", result.green_flags);
-      console.log("[JobScout] Red Flags:", result.red_flags);
       console.log("[JobScout] =========================");
     },
   );
 }
 
-function waitForJobContent(): void {
-  console.log("[JobScout] Waiting for job content to load...");
-  let triggered = false;
+function waitForDescriptionThenAnalyze(): void {
+  console.log("[JobScout] Waiting for job description to render...");
+  let attempts = 0;
+  const maxAttempts = 20;
 
-  const observer = new MutationObserver((_mutations, obs) => {
-    if (triggered) return;
-
+  const interval = setInterval(() => {
+    attempts++;
     const descriptionEl = document.querySelector<HTMLElement>(
       ".jobs-description__content .jobs-box__html-content",
     );
 
     if (descriptionEl && descriptionEl.innerText.trim().length > 100) {
-      triggered = true;
-      obs.disconnect();
-      console.log(
-        "[JobScout] Job content detected via observer, starting analysis",
+      clearInterval(interval);
+      console.log("[JobScout] Description ready after", attempts, "attempts");
+      analyzeJob();
+      return;
+    }
+
+    if (attempts >= maxAttempts) {
+      clearInterval(interval);
+      console.warn(
+        "[JobScout] Description never rendered after",
+        maxAttempts,
+        "attempts",
       );
-      setTimeout(analyzeJob, 800);
+    }
+  }, 300);
+}
+
+function onUrlChange(newUrl: string): void {
+  console.log("[JobScout] URL changed to:", newUrl);
+
+  const isJobPage = newUrl.includes("linkedin.com/jobs");
+  if (!isJobPage) return;
+
+  const hasJobId =
+    newUrl.includes("currentJobId=") || newUrl.match(/\/jobs\/view\/\d+/);
+  if (!hasJobId) {
+    console.log("[JobScout] No specific job selected yet, waiting...");
+    return;
+  }
+
+  waitForDescriptionThenAnalyze();
+}
+
+function initUrlWatcher(): void {
+  let currentUrl = window.location.href;
+
+  const observer = new MutationObserver(() => {
+    const newUrl = window.location.href;
+    if (newUrl !== currentUrl) {
+      currentUrl = newUrl;
+      onUrlChange(newUrl);
     }
   });
 
@@ -148,15 +203,8 @@ function waitForJobContent(): void {
     subtree: true,
   });
 
-  const descriptionEl = document.querySelector<HTMLElement>(
-    ".jobs-description__content .jobs-box__html-content",
-  );
-  if (descriptionEl && descriptionEl.innerText.trim().length > 100) {
-    triggered = true;
-    observer.disconnect();
-    console.log("[JobScout] Job content already present, starting analysis");
-    setTimeout(analyzeJob, 800);
-  }
+  console.log("[JobScout] URL watcher initialized");
 }
 
-waitForJobContent();
+initUrlWatcher();
+onUrlChange(window.location.href);
