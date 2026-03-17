@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 
 class AnalyzeRequest(BaseModel):
@@ -23,3 +24,17 @@ class AnalyzeResponse(BaseModel):
     gaps: list[ScoreCategory]
     red_flags: list[str]
     green_flags: list[str]
+
+
+class JobHistoryItem(BaseModel):
+    id: int
+    url: Optional[str]
+    job_title: str
+    company: str
+    fit_score: int
+    should_apply: bool
+    one_line_verdict: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
