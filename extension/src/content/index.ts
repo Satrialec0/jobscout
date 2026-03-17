@@ -228,13 +228,19 @@ async function analyzeJob(): Promise<void> {
         storagePayload[`jobid_${jobId}`] = {
           score: result.fit_score,
           shouldApply: result.should_apply,
+          verdict: result.one_line_verdict,
         };
       }
 
       chrome.storage.local.set(storagePayload, () => {
         console.log("[JobScout] Score saved, updating badges for job:", jobId);
         if (jobId) {
-          updateBadgeForJobId(jobId, result.fit_score, result.should_apply);
+          updateBadgeForJobId(
+            jobId,
+            result.fit_score,
+            result.should_apply,
+            result.one_line_verdict,
+          );
         }
       });
 
