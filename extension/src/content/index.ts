@@ -58,11 +58,60 @@ function extractSalary(): string | null {
   return null;
 }
 
+function extractEasyApply(): boolean {
+  const jobDetailPanel = document.querySelector<HTMLElement>(
+    ".jobs-search__job-details--wrapper, .job-view-layout, .jobs-details",
+  );
+
+  const searchScope = jobDetailPanel ?? document;
+
+  const specificSelectors = [
+    "button[aria-label*='Easy Apply']",
+    ".jobs-apply-button--top-card",
+    ".jobs-apply-button[aria-label*='Easy Apply']",
+    ".artdeco-button[aria-label*='Easy Apply']",
+  ];
+
+  for (const selector of specificSelectors) {
+    const el = searchScope.querySelector(selector);
+    if (el) {
+      const label = el.getAttribute("aria-label") ?? el.textContent ?? "";
+      if (label.toLowerCase().includes("easy apply")) {
+        console.log("[JobScout] Easy Apply detected via selector in job panel");
+        return true;
+      }
+    }
+  }
+
+  const topCardPanel = document.querySelector(
+    ".job-details-jobs-unified-top-card__container--two-pane, .jobs-unified-top-card",
+  );
+
+  if (topCardPanel) {
+    const buttons = topCardPanel.querySelectorAll("button");
+    for (const btn of buttons) {
+      const label = btn.getAttribute("aria-label") ?? btn.textContent ?? "";
+      if (label.toLowerCase().includes("easy apply")) {
+        console.log("[JobScout] Easy Apply detected in top card panel");
+        return true;
+      }
+    }
+    console.log("[JobScout] Top card panel found but no Easy Apply button");
+    return false;
+  }
+
+  console.log(
+    "[JobScout] Could not scope to job panel, Easy Apply not detected",
+  );
+  return false;
+}
+
 function extractLinkedInJob(): {
   jobTitle: string;
   company: string;
   jobDescription: string;
   salary: string | null;
+  easyApply: boolean;
 } | null {
   console.log("[JobScout] Attempting LinkedIn extraction");
 
@@ -95,15 +144,17 @@ function extractLinkedInJob(): {
   }
 
   const salary = extractSalary();
+  const easyApply = extractEasyApply();
 
   console.log("[JobScout] Extracted:", {
     jobTitle,
     company,
     descriptionLength: jobDescription.length,
     salary,
+    easyApply,
   });
 
-  return { jobTitle, company, jobDescription, salary };
+  return { jobTitle, company, jobDescription, salary, easyApply };
 }
 
 async function analyzeJob(): Promise<void> {
@@ -169,6 +220,7 @@ async function analyzeJob(): Promise<void> {
           company: data.company,
           timestamp: Date.now(),
           salary: data.salary,
+          easyApply: data.easyApply,
         },
       };
 
@@ -191,6 +243,7 @@ async function analyzeJob(): Promise<void> {
       console.log(`[JobScout] Should Apply: ${result.should_apply}`);
       console.log(`[JobScout] Verdict:      ${result.one_line_verdict}`);
       console.log(`[JobScout] Salary:       ${data.salary ?? "not found"}`);
+      console.log(`[JobScout] Easy Apply:   ${data.easyApply}`);
       console.log("[JobScout] =========================");
     },
   );
