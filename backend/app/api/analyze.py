@@ -1,15 +1,16 @@
+import logging
 from fastapi import APIRouter, HTTPException
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse
 from app.services.claude import analyze_job
 
-print("[api/analyze.py] Loading analyze router")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_job_posting(request: AnalyzeRequest) -> AnalyzeResponse:
-    print(f"[api/analyze.py] Received request: {request.job_title} at {request.company}")
+    logger.info("Received analyze request: %s at %s", request.job_title, request.company)
 
     try:
         result = analyze_job(
@@ -17,9 +18,12 @@ async def analyze_job_posting(request: AnalyzeRequest) -> AnalyzeResponse:
             company=request.company,
             job_description=request.job_description
         )
-        print(f"[api/analyze.py] Analysis complete, fit_score: {result.fit_score}")
+        logger.info("Analysis complete, fit_score: %s", result.fit_score)
         return result
 
+    except ValueError as e:
+        logger.warning("Analysis failed with validation error: %s", e)
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
-        print(f"[api/analyze.py] Error during analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Unexpected error during analysis")
+        raise HTTPException(status_code=500, detail="Internal server error")

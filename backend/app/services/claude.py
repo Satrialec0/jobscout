@@ -1,10 +1,12 @@
 import json
 import re
+import logging
 import anthropic
+from anthropic import APIConnectionError, APIStatusError, RateLimitError
 from app.config import get_settings
 from app.schemas.analyze import AnalyzeResponse, ScoreCategory
 
-print("[claude.py] Loading Claude service module")
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an expert job application strategist analyzing job fit for a specific candidate.
 
@@ -45,33 +47,42 @@ SCORING RUBRIC:
 Be honest about gaps. Do not oversell. Flag real mismatches."""
 
 
-def parse_claude_response(raw_text: str) -> AnalyzeResponse:
-    print(f"[claude.py] Parsing raw response, length: {len(raw_text)} chars")
-
-    cleaned = raw_text.strip()
+def _strip_markdown(text: str) -> str:
+    cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\n?", "", cleaned)
         cleaned = re.sub(r"\n?```$", "", cleaned)
-        cleaned = cleaned.strip()
-        print("[claude.py] Stripped markdown code block from response")
+    return cleaned.strip()
 
-    data = json.loads(cleaned)
-    print(f"[claude.py] JSON parsed successfully, fit_score: {data.get('fit_score')}")
 
-    return AnalyzeResponse(
-        fit_score=data["fit_score"],
-        should_apply=data["should_apply"],
-        one_line_verdict=data["one_line_verdict"],
-        direct_matches=[ScoreCategory(**i) for i in data.get("direct_matches", [])],
-        transferable=[ScoreCategory(**i) for i in data.get("transferable", [])],
-        gaps=[ScoreCategory(**i) for i in data.get("gaps", [])],
-        red_flags=data.get("red_flags", []),
-        green_flags=data.get("green_flags", []),
-    )
+def _parse_response(raw_text: str) -> AnalyzeResponse:
+    cleaned = _strip_markdown(raw_text)
+
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error("Failed to parse Claude response as JSON: %s", e)
+        logger.debug("Raw response was: %s", raw_text)
+        raise ValueError(f"Claude returned invalid JSON: {e}") from e
+
+    try:
+        return AnalyzeResponse(
+            fit_score=data["fit_score"],
+            should_apply=data["should_apply"],
+            one_line_verdict=data["one_line_verdict"],
+            direct_matches=[ScoreCategory(**i) for i in data.get("direct_matches", [])],
+            transferable=[ScoreCategory(**i) for i in data.get("transferable", [])],
+            gaps=[ScoreCategory(**i) for i in data.get("gaps", [])],
+            red_flags=data.get("red_flags", []),
+            green_flags=data.get("green_flags", []),
+        )
+    except KeyError as e:
+        logger.error("Claude response missing required field: %s", e)
+        raise ValueError(f"Claude response missing required field: {e}") from e
 
 
 def analyze_job(job_title: str, company: str, job_description: str) -> AnalyzeResponse:
-    print(f"[claude.py] Starting analysis for: {job_title} at {company}")
+    logger.info("Starting analysis: %s at %s", job_title, company)
 
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
@@ -84,18 +95,27 @@ COMPANY: {company}
 JOB DESCRIPTION:
 {job_description}"""
 
-    print("[claude.py] Sending request to Claude API")
+    try:
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}]
+        )
+    except RateLimitError as e:
+        logger.error("Claude API rate limit hit: %s", e)
+        raise ValueError("Rate limit reached. Please wait a moment and try again.") from e
+    except APIConnectionError as e:
+        logger.error("Claude API connection error: %s", e)
+        raise ValueError("Could not connect to Claude API. Check your internet connection.") from e
+    except APIStatusError as e:
+        logger.error("Claude API status error %s: %s", e.status_code, e.message)
+        raise ValueError(f"Claude API error {e.status_code}: {e.message}") from e
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[
-            {"role": "user", "content": user_message}
-        ]
+    logger.info(
+        "Claude response received, stop_reason: %s, tokens used: %s",
+        message.stop_reason,
+        message.usage.input_tokens + message.usage.output_tokens
     )
 
-    print(f"[claude.py] Claude response received, stop_reason: {message.stop_reason}")
-
-    raw_text = message.content[0].text
-    return parse_claude_response(raw_text)
+    return _parse_response(message.content[0].text)
