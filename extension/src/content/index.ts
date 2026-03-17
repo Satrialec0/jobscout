@@ -1,10 +1,20 @@
 console.log("[JobScout] Content script loaded on:", window.location.href);
 
 import { checkAndInjectFromStorage, updateBadgeForJobId } from "./badge";
+import { addJobToOverlay, updateOverlayActiveJob } from "./overlay";
 
 interface ScoreCategory {
   item: string;
   detail: string;
+}
+
+interface SalaryEstimate {
+  low: number;
+  high: number;
+  currency: string;
+  per: string;
+  confidence: string;
+  assessment: string | null;
 }
 
 interface AnalyzeResponse {
@@ -16,6 +26,7 @@ interface AnalyzeResponse {
   gaps: ScoreCategory[];
   red_flags: string[];
   green_flags: string[];
+  salary_estimate?: SalaryEstimate;
 }
 
 let analysisInProgress = false;
@@ -317,6 +328,18 @@ async function analyzeJob(): Promise<void> {
             result.should_apply,
             result.one_line_verdict,
           );
+          addJobToOverlay({
+            jobId,
+            jobTitle: data.jobTitle,
+            company: data.company,
+            score: result.fit_score,
+            shouldApply: result.should_apply,
+            salary: data.salary,
+            salaryEstimateLow: result.salary_estimate?.low ?? null,
+            salaryEstimateHigh: result.salary_estimate?.high ?? null,
+            easyApply: data.easyApply,
+            url: currentUrl,
+          });
         }
       });
 
@@ -377,6 +400,11 @@ function onUrlChange(newUrl: string): void {
   }
 
   waitForDescriptionThenAnalyze();
+
+  const jobIdMatch = newUrl.match(/currentJobId=(\d+)/);
+  if (jobIdMatch) {
+    updateOverlayActiveJob(jobIdMatch[1]);
+  }
 }
 
 function initCardObserver(): void {
