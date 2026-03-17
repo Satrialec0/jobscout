@@ -199,20 +199,22 @@ export function isIndeedJobPage(url: string): boolean {
 }
 
 export function extractIndeedCardJobId(card: Element): string | null {
-  const link = card.querySelector<HTMLAnchorElement>(
-    "a[href*='jk='], a[href*='vjk='], a[href*='/viewjob']",
-  );
-  if (!link) return null;
+  const idMatch = card.id?.match(/^sj_([a-zA-Z0-9]+)$/);
+  if (idMatch) return idMatch[1];
 
-  const vjkMatch = link.href.match(/[?&]vjk=([a-zA-Z0-9]+)/);
-  if (vjkMatch) return vjkMatch[1];
+  if (card.tagName === "A") {
+    const href = (card as HTMLAnchorElement).href;
+    const vjkMatch = href.match(/[?&]vjk=([a-zA-Z0-9]+)/);
+    if (vjkMatch) return vjkMatch[1];
+    const jkMatch = href.match(/[?&]jk=([a-zA-Z0-9]+)/);
+    if (jkMatch) return jkMatch[1];
+  }
 
-  const jkMatch = link.href.match(/[?&]jk=([a-zA-Z0-9]+)/);
-  if (jkMatch) return jkMatch[1];
-
-  const dataJobId =
-    card.getAttribute("data-jk") ?? card.getAttribute("data-job-id");
-  if (dataJobId) return dataJobId;
+  const link = card.querySelector<HTMLAnchorElement>("a[id^='sj_']");
+  if (link) {
+    const idMatch2 = link.id.match(/^sj_([a-zA-Z0-9]+)$/);
+    if (idMatch2) return idMatch2[1];
+  }
 
   return null;
 }

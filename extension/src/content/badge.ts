@@ -118,19 +118,36 @@ function createScoreBadge(
 }
 
 export function extractJobId(card: Element): string | null {
+  const sjMatch = card.id?.match(/^sj_([a-zA-Z0-9]+)$/);
+  if (sjMatch) return sjMatch[1];
+
   const link = card.querySelector<HTMLAnchorElement>(
-    "a[href*='currentJobId'], a[href*='/jobs/view/'], a[href*='jk='], a[href*='/viewjob']",
+    "a[href*='currentJobId'], a[href*='/jobs/view/'], a[href*='jk='], a[href*='vjk='], a[href*='/viewjob'], a[id^='sj_']",
   );
-  if (!link) return null;
+  if (!link) {
+    if (card.tagName === "A") {
+      const href = (card as HTMLAnchorElement).href;
+      const vjkMatch = href.match(/[?&]vjk=([a-zA-Z0-9]+)/);
+      if (vjkMatch) return vjkMatch[1];
+      const jkMatch = href.match(/[?&]jk=([a-zA-Z0-9]+)/);
+      if (jkMatch) return jkMatch[1];
+      const currentJobIdMatch = href.match(/currentJobId=(\d+)/);
+      if (currentJobIdMatch) return currentJobIdMatch[1];
+      const viewMatch = href.match(/\/jobs\/view\/(\d+)/);
+      if (viewMatch) return viewMatch[1];
+    }
+    return null;
+  }
 
   const href = link.href;
-
+  const sjIdMatch = link.id?.match(/^sj_([a-zA-Z0-9]+)$/);
+  if (sjIdMatch) return sjIdMatch[1];
   const currentJobIdMatch = href.match(/currentJobId=(\d+)/);
   if (currentJobIdMatch) return currentJobIdMatch[1];
-
   const viewMatch = href.match(/\/jobs\/view\/(\d+)/);
   if (viewMatch) return viewMatch[1];
-
+  const vjkMatch = href.match(/[?&]vjk=([a-zA-Z0-9]+)/);
+  if (vjkMatch) return vjkMatch[1];
   const jkMatch = href.match(/[?&]jk=([a-zA-Z0-9]+)/);
   if (jkMatch) return jkMatch[1];
 
@@ -148,6 +165,10 @@ function findBadgeTarget(card: Element): Element | null {
     card.querySelector(".job-card-list__title") ||
     card.querySelector(".job-card-container__link") ||
     card.querySelector("[class*='job-card'] a") ||
+    card.querySelector(".jobTitle") ||
+    card.querySelector("h2.jobTitle") ||
+    card.querySelector("[id^='sj_']")?.parentElement ||
+    card.querySelector("a[id^='sj_']")?.parentElement ||
     null
   );
 }
@@ -190,6 +211,9 @@ export function checkAndInjectFromStorage(card: Element): void {
   if (!jobId) return;
 
   if (card.hasAttribute("data-jobscout-id")) return;
+  if (card.hasAttribute("data-jobscout-badge-pending")) return; // ADD THIS
+
+  card.setAttribute("data-jobscout-badge-pending", "true"); // ADD THIS
 
   const storageKey = `jobid_${jobId}`;
   chrome.storage.local.get(storageKey, (data) => {

@@ -272,7 +272,7 @@ function initCardObserver(): void {
   const cardSelectors: Record<string, string> = {
     linkedin:
       ".job-card-container, .jobs-search-results__list-item, [data-job-id]",
-    indeed: ".job_seen_beacon, .resultContent, [class*='jobCard']",
+    indeed: "[id^='sj_'], .job_seen_beacon, .resultContent",
     "hiring-cafe": "[class*='job-card'], [class*='jobCard'], [class*='result']",
   };
 
