@@ -119,7 +119,7 @@ function createScoreBadge(
 
 export function extractJobId(card: Element): string | null {
   const link = card.querySelector<HTMLAnchorElement>(
-    "a[href*='currentJobId'], a[href*='/jobs/view/']",
+    "a[href*='currentJobId'], a[href*='/jobs/view/'], a[href*='jk='], a[href*='/viewjob']",
   );
   if (!link) return null;
 
@@ -130,6 +130,15 @@ export function extractJobId(card: Element): string | null {
 
   const viewMatch = href.match(/\/jobs\/view\/(\d+)/);
   if (viewMatch) return viewMatch[1];
+
+  const jkMatch = href.match(/[?&]jk=([a-zA-Z0-9]+)/);
+  if (jkMatch) return jkMatch[1];
+
+  const segments = href.replace(/\/$/, "").split("/");
+  const last = segments[segments.length - 1];
+  if (last && last.length > 3 && !last.includes("=") && !last.includes(".")) {
+    return last;
+  }
 
   return null;
 }
