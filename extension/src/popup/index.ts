@@ -5,6 +5,15 @@ interface ScoreCategory {
   detail: string;
 }
 
+interface SalaryEstimate {
+  low: number;
+  high: number;
+  currency: string;
+  per: string;
+  confidence: string;
+  assessment: string | null;
+}
+
 interface AnalyzeResponse {
   fit_score: number;
   should_apply: boolean;
@@ -14,6 +23,7 @@ interface AnalyzeResponse {
   gaps: ScoreCategory[];
   red_flags: string[];
   green_flags: string[];
+  salary_estimate?: SalaryEstimate;
 }
 
 interface StoredScore {
@@ -24,20 +34,7 @@ interface StoredScore {
   salary?: string;
   easyApply?: boolean;
   jobAge?: string;
-}
-
-interface BackendScoreResponse {
-  fit_score: number;
-  should_apply: boolean;
-  one_line_verdict: string;
-  direct_matches: ScoreCategory[];
-  transferable: ScoreCategory[];
-  gaps: ScoreCategory[];
-  red_flags: string[];
-  green_flags: string[];
-  job_title: string;
-  company: string;
-  created_at: string;
+  jobAgeIsOld?: boolean;
 }
 
 function getScoreColor(score: number): string {
@@ -52,6 +49,18 @@ function getScoreTrackColor(score: number): string {
   if (score >= 60) return "#1c1917";
   if (score >= 40) return "#1c0a00";
   return "#2d1515";
+}
+
+function getConfidenceColor(confidence: string): string {
+  if (confidence === "high") return "#a78bfa";
+  if (confidence === "medium") return "#818cf8";
+  return "#6b7280";
+}
+
+function formatSalaryEstimate(est: SalaryEstimate): string {
+  const low = `$${(est.low / 1000).toFixed(0)}k`;
+  const high = `$${(est.high / 1000).toFixed(0)}k`;
+  return `${low}–${high}/yr`;
 }
 
 function buildScoreRing(score: number): string {
@@ -156,20 +165,27 @@ function renderScore(
 
   const applyClass = result.should_apply ? "yes" : "no";
   const applyText = result.should_apply ? "✓ Apply" : "✗ Skip";
-  const isStale = jobAge
-    ? jobAge.includes("month") ||
-      (jobAge.includes("week") && parseInt(jobAge) >= 4) ||
-      (jobAge.includes("day") && parseInt(jobAge) >= 30)
-    : false;
+
+  const salaryEstimate = result.salary_estimate;
+
+  let salaryBadgeHtml = "";
+  if (salary) {
+    salaryBadgeHtml = `<span class="salary-badge">$ ${salary}</span>`;
+  } else if (salaryEstimate) {
+    const confColor = getConfidenceColor(salaryEstimate.confidence);
+    salaryBadgeHtml = `<span class="salary-badge" style="border-color: ${confColor}; color: ${confColor}; opacity: 0.85;" title="Market estimate — ${salaryEstimate.confidence} confidence">~ ${formatSalaryEstimate(salaryEstimate)}</span>`;
+  }
+
+  const assessmentHtml = salaryEstimate?.assessment
+    ? `<div style="font-size: 11px; color: #a78bfa; padding: 8px 16px; border-bottom: 1px solid #1e293b; font-style: italic; line-height: 1.5;">💰 ${salaryEstimate.assessment}</div>`
+    : "";
 
   const metaBadges = [
     `<span class="apply-badge ${applyClass}">${applyText}</span>`,
     isApplied ? `<span class="applied-badge">✓ Applied</span>` : "",
-    salary ? `<span class="salary-badge">$ ${salary}</span>` : "",
+    salaryBadgeHtml,
     easyApply ? `<span class="easy-apply-badge">⚡ Easy Apply</span>` : "",
-    jobAge
-      ? `<span class="age-badge${isStale ? " stale" : ""}">🕐 ${jobAge}</span>`
-      : "",
+    jobAge ? `<span class="age-badge">🕐 ${jobAge}</span>` : "",
   ]
     .filter(Boolean)
     .join("");
@@ -237,6 +253,7 @@ function renderScore(
       </div>
     </div>
     <div class="verdict">${result.one_line_verdict}</div>
+    ${assessmentHtml}
     <div class="action-bar">
       <button class="btn btn-reanalyze" id="btn-reanalyze" data-job-id="${jobId}" data-url="${tabUrl}">
         ↺ Re-analyze
@@ -366,7 +383,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         { type: "GET_SCORE_FROM_BACKEND", jobId },
         (response) => {
           if (response?.success) {
-            const backendData = response.data as BackendScoreResponse;
+            const backendData = response.data;
             const reconstructed: StoredScore = {
               result: {
                 fit_score: backendData.fit_score,
@@ -377,6 +394,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 gaps: backendData.gaps,
                 red_flags: backendData.red_flags,
                 green_flags: backendData.green_flags,
+                salary_estimate: backendData.salary_estimate,
               },
               jobTitle: backendData.job_title,
               company: backendData.company,

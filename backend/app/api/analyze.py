@@ -23,6 +23,14 @@ async def analyze_job_posting(
         cached = get_cached_analysis(db, request.url)
         if cached:
             logger.info("Returning cached result for url: %s", request.url)
+            salary_estimate = None
+            if cached.salary_estimate:
+                from app.schemas.analyze import SalaryEstimate
+                try:
+                    salary_estimate = SalaryEstimate(**cached.salary_estimate)
+                except Exception:
+                    pass
+
             return AnalyzeResponse(
                 fit_score=cached.fit_score,
                 should_apply=cached.should_apply,
@@ -32,13 +40,15 @@ async def analyze_job_posting(
                 gaps=cached.gaps,
                 red_flags=cached.red_flags,
                 green_flags=cached.green_flags,
+                salary_estimate=salary_estimate,
             )
 
     try:
         result = analyze_job(
             job_title=request.job_title,
             company=request.company,
-            job_description=request.job_description
+            job_description=request.job_description,
+            listed_salary=request.listed_salary,
         )
         logger.info("Analysis complete, fit_score: %s", result.fit_score)
 
@@ -55,7 +65,7 @@ async def analyze_job_posting(
         company=request.company,
         job_description=request.job_description,
         result=result,
-        url=request.url
+        url=request.url,
     )
 
     return result
@@ -72,6 +82,7 @@ async def get_history(
         .limit(limit)\
         .all()
     return records
+
 
 @router.get("/score/{job_id}")
 async def get_score_by_job_id(
@@ -101,6 +112,7 @@ async def get_score_by_job_id(
         "job_title": record.job_title,
         "company": record.company,
         "created_at": record.created_at.isoformat(),
+        "salary_estimate": record.salary_estimate,
     }
 
 

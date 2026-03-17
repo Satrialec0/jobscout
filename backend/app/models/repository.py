@@ -23,6 +23,17 @@ def save_analysis(
     result: AnalyzeResponse,
     url: str | None = None
 ) -> JobAnalysis:
+    salary_estimate_dict = None
+    if result.salary_estimate:
+        salary_estimate_dict = {
+            "low": result.salary_estimate.low,
+            "high": result.salary_estimate.high,
+            "currency": result.salary_estimate.currency,
+            "per": result.salary_estimate.per,
+            "confidence": result.salary_estimate.confidence,
+            "assessment": result.salary_estimate.assessment,
+        }
+
     record = JobAnalysis(
         url=url,
         job_title=job_title,
@@ -36,6 +47,7 @@ def save_analysis(
         gaps=[i.model_dump() for i in result.gaps],
         red_flags=result.red_flags,
         green_flags=result.green_flags,
+        salary_estimate=salary_estimate_dict,
     )
     db.add(record)
     db.commit()

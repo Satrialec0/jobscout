@@ -8,11 +8,21 @@ class AnalyzeRequest(BaseModel):
     company: str
     job_description: str
     url: Optional[str] = None
+    listed_salary: Optional[str] = None
 
 
 class ScoreCategory(BaseModel):
     item: str
     detail: str
+
+
+class SalaryEstimate(BaseModel):
+    low: int
+    high: int
+    currency: str = "USD"
+    per: str = "year"
+    confidence: str
+    assessment: Optional[str] = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -24,6 +34,7 @@ class AnalyzeResponse(BaseModel):
     gaps: list[ScoreCategory]
     red_flags: list[str]
     green_flags: list[str]
+    salary_estimate: Optional[SalaryEstimate] = None
 
 
 class JobHistoryItem(BaseModel):

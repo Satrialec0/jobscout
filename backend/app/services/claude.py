@@ -4,7 +4,7 @@ import logging
 import anthropic
 from anthropic import APIConnectionError, APIStatusError, RateLimitError
 from app.config import get_settings
-from app.schemas.analyze import AnalyzeResponse, ScoreCategory
+from app.schemas.analyze import AnalyzeResponse, ScoreCategory, SalaryEstimate
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,31 @@ The JSON must exactly match this schema:
   "transferable": [{"item": "<skill/experience>", "detail": "<how to reframe>"}],
   "gaps": [{"item": "<missing requirement>", "detail": "<honest assessment>"}],
   "red_flags": ["<concerning aspect of the role>"],
-  "green_flags": ["<strong positive signal>"]
+  "green_flags": ["<strong positive signal>"],
+  "salary_estimate": {
+    "low": <integer, annual USD>,
+    "high": <integer, annual USD>,
+    "currency": "USD",
+    "per": "year",
+    "confidence": "<low|medium|high>",
+    "assessment": "<one sentence comparing to listed salary, or null if no listed salary>"
+  }
 }
+
+SALARY ESTIMATION INSTRUCTIONS:
+- Always provide a salary_estimate based on: job title, seniority, company type/size, location signals, industry, and required experience
+- Base estimates on current US market rates for 2025-2026
+- If the job description lists a salary, set assessment to a one-sentence evaluation of whether it is below market, at market, or above market for this role and location
+- If no salary is listed, set assessment to null
+- Use these rough anchors for clean energy / engineering roles in the Northeast US:
+  - Entry level (0-2 yrs): $65k-$85k
+  - Mid level (3-5 yrs): $85k-$120k
+  - Senior (5-8 yrs): $110k-$150k
+  - Staff/Lead (8+ yrs): $140k-$200k
+  - Adjust up 15-25% for NYC/SF, down 10-15% for remote or midwest roles
+  - Adjust up for specialized skills (PE license, specific software, niche domain)
+  - Adjust up for product/commercial roles vs pure engineering roles
+- confidence should be "high" if the JD gives strong signals (title, location, years experience), "medium" if partial signals, "low" if minimal context
 
 SCORING RUBRIC:
 - 80-100: Strong match, apply immediately
@@ -55,7 +78,7 @@ def _strip_markdown(text: str) -> str:
     return cleaned.strip()
 
 
-def _parse_response(raw_text: str) -> AnalyzeResponse:
+def _parse_response(raw_text: str, listed_salary: str | None = None) -> AnalyzeResponse:
     cleaned = _strip_markdown(raw_text)
 
     try:
@@ -64,6 +87,21 @@ def _parse_response(raw_text: str) -> AnalyzeResponse:
         logger.error("Failed to parse Claude response as JSON: %s", e)
         logger.debug("Raw response was: %s", raw_text)
         raise ValueError(f"Claude returned invalid JSON: {e}") from e
+
+    salary_estimate = None
+    if data.get("salary_estimate"):
+        se = data["salary_estimate"]
+        try:
+            salary_estimate = SalaryEstimate(
+                low=se["low"],
+                high=se["high"],
+                currency=se.get("currency", "USD"),
+                per=se.get("per", "year"),
+                confidence=se.get("confidence", "medium"),
+                assessment=se.get("assessment"),
+            )
+        except (KeyError, TypeError) as e:
+            logger.warning("Could not parse salary_estimate: %s", e)
 
     try:
         return AnalyzeResponse(
@@ -75,22 +113,30 @@ def _parse_response(raw_text: str) -> AnalyzeResponse:
             gaps=[ScoreCategory(**i) for i in data.get("gaps", [])],
             red_flags=data.get("red_flags", []),
             green_flags=data.get("green_flags", []),
+            salary_estimate=salary_estimate,
         )
     except KeyError as e:
         logger.error("Claude response missing required field: %s", e)
         raise ValueError(f"Claude response missing required field: {e}") from e
 
 
-def analyze_job(job_title: str, company: str, job_description: str) -> AnalyzeResponse:
+def analyze_job(
+    job_title: str,
+    company: str,
+    job_description: str,
+    listed_salary: str | None = None,
+) -> AnalyzeResponse:
     logger.info("Starting analysis: %s at %s", job_title, company)
 
     settings = get_settings()
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
+    salary_context = f"\nLISTED SALARY: {listed_salary}" if listed_salary else "\nLISTED SALARY: Not provided"
+
     user_message = f"""Please analyze this job posting for fit:
 
 JOB TITLE: {job_title}
-COMPANY: {company}
+COMPANY: {company}{salary_context}
 
 JOB DESCRIPTION:
 {job_description}"""
@@ -98,7 +144,7 @@ JOB DESCRIPTION:
     try:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=1500,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}]
         )
@@ -118,4 +164,4 @@ JOB DESCRIPTION:
         message.usage.input_tokens + message.usage.output_tokens
     )
 
-    return _parse_response(message.content[0].text)
+    return _parse_response(message.content[0].text, listed_salary)

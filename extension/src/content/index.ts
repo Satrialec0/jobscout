@@ -106,12 +106,74 @@ function extractEasyApply(): boolean {
   return false;
 }
 
+function extractJobAge(): { text: string; isOld: boolean } | null {
+  const ageSelectors = [
+    ".job-details-jobs-unified-top-card__primary-description-without-tagline",
+    ".job-details-jobs-unified-top-card__primary-description",
+    ".jobs-unified-top-card__subtitle-primary-grouping",
+    "[class*='posted-date']",
+    "[class*='job-age']",
+  ];
+
+  for (const selector of ageSelectors) {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (!el) continue;
+
+    const text = el.innerText;
+    const ageMatch = text.match(
+      /(\d+)\s*(minute|hour|day|week|month)s?\s*ago/i,
+    );
+
+    if (ageMatch) {
+      const value = parseInt(ageMatch[1]);
+      const unit = ageMatch[2].toLowerCase();
+      const ageText = `${value} ${unit}${value !== 1 ? "s" : ""} ago`;
+
+      let isOld = false;
+      if (unit === "month") isOld = true;
+      if (unit === "week" && value >= 2) isOld = true;
+      if (unit === "day" && value >= 14) isOld = true;
+
+      console.log(`[JobScout] Job age: ${ageText}, isOld: ${isOld}`);
+      return { text: ageText, isOld };
+    }
+  }
+
+  const allText =
+    document.querySelector<HTMLElement>(
+      ".job-details-jobs-unified-top-card__container--two-pane",
+    )?.innerText ?? "";
+
+  const fallbackMatch = allText.match(
+    /(\d+)\s*(minute|hour|day|week|month)s?\s*ago/i,
+  );
+
+  if (fallbackMatch) {
+    const value = parseInt(fallbackMatch[1]);
+    const unit = fallbackMatch[2].toLowerCase();
+    const ageText = `${value} ${unit}${value !== 1 ? "s" : ""} ago`;
+
+    let isOld = false;
+    if (unit === "month") isOld = true;
+    if (unit === "week" && value >= 2) isOld = true;
+    if (unit === "day" && value >= 14) isOld = true;
+
+    console.log(`[JobScout] Job age via fallback: ${ageText}, isOld: ${isOld}`);
+    return { text: ageText, isOld };
+  }
+
+  console.log("[JobScout] Job age not found");
+  return null;
+}
+
 function extractLinkedInJob(): {
   jobTitle: string;
   company: string;
   jobDescription: string;
   salary: string | null;
   easyApply: boolean;
+  jobAge: string | null;
+  jobAgeIsOld: boolean;
 } | null {
   console.log("[JobScout] Attempting LinkedIn extraction");
 
@@ -145,6 +207,7 @@ function extractLinkedInJob(): {
 
   const salary = extractSalary();
   const easyApply = extractEasyApply();
+  const ageResult = extractJobAge();
 
   console.log("[JobScout] Extracted:", {
     jobTitle,
@@ -152,9 +215,19 @@ function extractLinkedInJob(): {
     descriptionLength: jobDescription.length,
     salary,
     easyApply,
+    jobAge: ageResult?.text ?? null,
+    jobAgeIsOld: ageResult?.isOld ?? false,
   });
 
-  return { jobTitle, company, jobDescription, salary, easyApply };
+  return {
+    jobTitle,
+    company,
+    jobDescription,
+    salary,
+    easyApply,
+    jobAge: ageResult?.text ?? null,
+    jobAgeIsOld: ageResult?.isOld ?? false,
+  };
 }
 
 async function analyzeJob(): Promise<void> {
@@ -188,6 +261,7 @@ async function analyzeJob(): Promise<void> {
         company: data.company,
         job_description: data.jobDescription,
         url: currentUrl,
+        listed_salary: data.salary,
       },
     },
     (response) => {
@@ -221,6 +295,8 @@ async function analyzeJob(): Promise<void> {
           timestamp: Date.now(),
           salary: data.salary,
           easyApply: data.easyApply,
+          jobAge: data.jobAge,
+          jobAgeIsOld: data.jobAgeIsOld,
         },
       };
 
@@ -250,6 +326,9 @@ async function analyzeJob(): Promise<void> {
       console.log(`[JobScout] Verdict:      ${result.one_line_verdict}`);
       console.log(`[JobScout] Salary:       ${data.salary ?? "not found"}`);
       console.log(`[JobScout] Easy Apply:   ${data.easyApply}`);
+      console.log(
+        `[JobScout] Job Age:      ${data.jobAge ?? "not found"} (old: ${data.jobAgeIsOld})`,
+      );
       console.log("[JobScout] =========================");
     },
   );

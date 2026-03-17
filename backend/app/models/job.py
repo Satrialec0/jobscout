@@ -29,3 +29,4 @@ class JobAnalysis(Base):
         default=lambda: datetime.now(timezone.utc)
     )
     applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    salary_estimate: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
