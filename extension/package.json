@@ -1,0 +1,17 @@
+{
+  "name": "jobscout-extension",
+  "version": "0.1.0",
+  "description": "Chrome extension for real-time job fit scoring",
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.316",
+    "copy-webpack-plugin": "^13.0.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.2",
+    "webpack": "^5.99.5",
+    "webpack-cli": "^6.0.1"
+  }
+}
