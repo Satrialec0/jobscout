@@ -20,9 +20,8 @@
     {
       "matches": [
         "https://www.linkedin.com/jobs/*",
-        "https://www.indeed.com/viewjob*",
-        "https://www.indeed.com/job/*",
-        "https://indeed.com/viewjob*",
+        "https://www.indeed.com/*",
+        "https://indeed.com/*",
         "https://hiring.cafe/*"
       ],
       "js": ["content.js"],

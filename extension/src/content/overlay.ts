@@ -64,7 +64,7 @@ function injectStyles(): void {
     #${OVERLAY_ID}.collapsed {
       transform: translateX(220px);
     }
-    #${OVERLAY_ID} .js-overlay-header {
+    #${OVERLAY_ID} .jobscout-overlay-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -72,16 +72,16 @@ function injectStyles(): void {
       border-bottom: 1px solid #1e293b;
       flex-shrink: 0;
     }
-    #${OVERLAY_ID} .js-overlay-title {
+    #${OVERLAY_ID} .jobscout-overlay-title {
       font-size: 12px;
       font-weight: 600;
       color: #38bdf8;
     }
-    #${OVERLAY_ID} .js-overlay-count {
+    #${OVERLAY_ID} .jobscout-overlay-count {
       font-size: 11px;
       color: #475569;
     }
-    #${OVERLAY_ID} .js-overlay-sort {
+    #${OVERLAY_ID} .jobscout-overlay-sort {
       font-size: 11px;
       color: #475569;
       cursor: pointer;
@@ -91,18 +91,18 @@ function injectStyles(): void {
       background: none;
       white-space: nowrap;
     }
-    #${OVERLAY_ID} .js-overlay-sort:hover {
+    #${OVERLAY_ID} .jobscout-overlay-sort:hover {
       color: #94a3b8;
       border-color: #475569;
     }
-    #${OVERLAY_ID} .js-overlay-list {
+    #${OVERLAY_ID} .jobscout-overlay-list {
       overflow-y: auto;
       flex: 1;
       padding: 6px;
       scrollbar-width: thin;
       scrollbar-color: #1e293b transparent;
     }
-    #${OVERLAY_ID} .js-overlay-item {
+    #${OVERLAY_ID} .jobscout-overlay-item {
       display: flex;
       align-items: flex-start;
       gap: 8px;
@@ -114,14 +114,14 @@ function injectStyles(): void {
       background: #111827;
       transition: background 0.1s;
     }
-    #${OVERLAY_ID} .js-overlay-item:hover {
+    #${OVERLAY_ID} .jobscout-overlay-item:hover {
       background: #1e293b;
     }
-    #${OVERLAY_ID} .js-overlay-item.active {
+    #${OVERLAY_ID} .jobscout-overlay-item.active {
       border-color: #334155;
       background: #1a2744;
     }
-    #${OVERLAY_ID} .js-score-pill {
+    #${OVERLAY_ID} .jobscout-score-pill {
       flex-shrink: 0;
       width: 32px;
       height: 32px;
@@ -132,11 +132,11 @@ function injectStyles(): void {
       font-size: 12px;
       font-weight: 700;
     }
-    #${OVERLAY_ID} .js-job-info {
+    #${OVERLAY_ID} .jobscout-job-info {
       flex: 1;
       min-width: 0;
     }
-    #${OVERLAY_ID} .js-job-title {
+    #${OVERLAY_ID} .jobscout-job-title {
       font-size: 11px;
       font-weight: 500;
       color: #e2e8f0;
@@ -144,7 +144,7 @@ function injectStyles(): void {
       overflow: hidden;
       text-overflow: ellipsis;
     }
-    #${OVERLAY_ID} .js-job-company {
+    #${OVERLAY_ID} .jobscout-job-company {
       font-size: 10px;
       color: #64748b;
       margin-bottom: 3px;
@@ -157,13 +157,13 @@ function injectStyles(): void {
       gap: 4px;
       flex-wrap: wrap;
     }
-    #${OVERLAY_ID} .js-meta-tag {
+    #${OVERLAY_ID} .jobscout-meta-tag {
       font-size: 9px;
       padding: 1px 4px;
       border-radius: 3px;
       font-weight: 500;
     }
-    #${OVERLAY_ID} .js-overlay-empty {
+    #${OVERLAY_ID} .jobscout-overlay-empty {
       padding: 20px 12px;
       text-align: center;
       font-size: 11px;
@@ -203,23 +203,23 @@ function buildJobItem(job: OverlayJob, isActive: boolean): HTMLElement {
   const salary = formatSalary(job);
 
   const item = document.createElement("div");
-  item.className = `js-overlay-item${isActive ? " active" : ""}`;
+  item.className = `jobscout-overlay-item${isActive ? " active" : ""}`;
   item.setAttribute("data-job-id", job.jobId);
 
   const applyColor = job.shouldApply ? "#4ade80" : "#f87171";
   const applyText = job.shouldApply ? "✓ Apply" : "✗ Skip";
 
   item.innerHTML = `
-    <div class="js-score-pill" style="background:${bg};color:${text};border:1px solid ${border}">
+    <div class="jobscout-score-pill" style="background:${bg};color:${text};border:1px solid ${border}">
       ${job.score}
     </div>
-    <div class="js-job-info">
-      <div class="js-job-title">${job.jobTitle}</div>
-      <div class="js-job-company">${job.company}</div>
+    <div class="jobscout-job-info">
+      <div class="jobscout-job-title">${job.jobTitle}</div>
+      <div class="jobscout-job-company">${job.company}</div>
       <div class="js-job-meta">
-        <span class="js-meta-tag" style="background:${bg};color:${applyColor}">${applyText}</span>
-        ${job.easyApply ? `<span class="js-meta-tag" style="background:#0f2a1a;color:#6ee7b7">⚡</span>` : ""}
-        ${salary ? `<span class="js-meta-tag" style="background:#1a1a2e;color:#a78bfa">${salary}</span>` : ""}
+        <span class="jobscout-meta-tag" style="background:${bg};color:${applyColor}">${applyText}</span>
+        ${job.easyApply ? `<span class="jobscout-meta-tag" style="background:#0f2a1a;color:#6ee7b7">⚡</span>` : ""}
+        ${salary ? `<span class="jobscout-meta-tag" style="background:#1a1a2e;color:#a78bfa">${salary}</span>` : ""}
       </div>
     </div>
   `;
@@ -249,7 +249,7 @@ function updateActiveItem(activeJobId: string): void {
   const overlay = document.getElementById(OVERLAY_ID);
   if (!overlay) return;
 
-  overlay.querySelectorAll(".js-overlay-item").forEach((item) => {
+  overlay.querySelectorAll(".jobscout-overlay-item").forEach((item) => {
     const itemJobId = item.getAttribute("data-job-id");
     item.classList.toggle("active", itemJobId === activeJobId);
   });
@@ -261,8 +261,8 @@ function renderOverlay(): void {
   const overlay = document.getElementById(OVERLAY_ID);
   if (!overlay) return;
 
-  const list = overlay.querySelector(".js-overlay-list");
-  const countEl = overlay.querySelector(".js-overlay-count");
+  const list = overlay.querySelector(".jobscout-overlay-list");
+  const countEl = overlay.querySelector(".jobscout-overlay-count");
   if (!list || !countEl) return;
 
   const currentJobId = getCurrentJobId();
@@ -276,7 +276,7 @@ function renderOverlay(): void {
 
   if (sorted.length === 0) {
     list.innerHTML = `
-      <div class="js-overlay-empty">
+      <div class="jobscout-overlay-empty">
         Click through job listings to see scores ranked here
       </div>
     `;
@@ -297,13 +297,13 @@ function createOverlay(): void {
   const overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
   overlay.innerHTML = `
-    <div class="js-overlay-header">
-      <span class="js-overlay-title">JobScout</span>
-      <span class="js-overlay-count">0 scored</span>
-      <button class="js-overlay-sort" id="js-sort-btn">↕ score</button>
+    <div class="jobscout-overlay-header">
+      <span class="jobscout-overlay-title">JobScout</span>
+      <span class="jobscout-overlay-count">0 scored</span>
+      <button class="jobscout-overlay-sort" id="jobscout-sort-btn">↕ score</button>
     </div>
-    <div class="js-overlay-list">
-      <div class="js-overlay-empty">
+    <div class="jobscout-overlay-list">
+      <div class="jobscout-overlay-empty">
         Click through job listings to see scores ranked here
       </div>
     </div>
@@ -325,7 +325,7 @@ function createOverlay(): void {
 
   toggle.style.right = "220px";
 
-  const sortBtn = document.getElementById("js-sort-btn");
+  const sortBtn = document.getElementById("jobscout-sort-btn");
   if (sortBtn) {
     sortBtn.addEventListener("click", () => {
       sortByScore = !sortByScore;

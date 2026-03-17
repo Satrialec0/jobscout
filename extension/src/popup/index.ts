@@ -356,7 +356,15 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     "indeed.com/viewjob",
     "hiring.cafe",
   ];
-  const isSupported = supportedSites.some((site) => tab.url!.includes(site));
+  const isSupported =
+    (tab.url!.includes("linkedin.com/jobs") &&
+      (tab.url!.includes("currentJobId=") ||
+        tab.url!.includes("/jobs/view/"))) ||
+    (tab.url!.includes("indeed.com") &&
+      (tab.url!.includes("vjk=") ||
+        tab.url!.includes("jk=") ||
+        tab.url!.includes("/viewjob"))) ||
+    tab.url!.includes("hiring.cafe");
 
   if (!isSupported) {
     renderEmpty();
