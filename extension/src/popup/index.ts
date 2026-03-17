@@ -21,6 +21,23 @@ interface StoredScore {
   jobTitle: string;
   company: string;
   timestamp: number;
+  salary?: string;
+  easyApply?: boolean;
+  jobAge?: string;
+}
+
+interface BackendScoreResponse {
+  fit_score: number;
+  should_apply: boolean;
+  one_line_verdict: string;
+  direct_matches: ScoreCategory[];
+  transferable: ScoreCategory[];
+  gaps: ScoreCategory[];
+  red_flags: string[];
+  green_flags: string[];
+  job_title: string;
+  company: string;
+  created_at: string;
 }
 
 function getScoreColor(score: number): string {
@@ -83,14 +100,72 @@ function buildSection(
   `;
 }
 
-function renderScore(stored: StoredScore): void {
-  const { result, jobTitle, company, timestamp } = stored;
+function renderLoading(): void {
+  const content = document.getElementById("content");
+  if (content) {
+    content.innerHTML = `
+      <div class="state-loading">
+        <div class="spinner"></div>
+        <div class="loading-label">Analyzing job...</div>
+        <div class="loading-sub">This takes about 10 seconds</div>
+      </div>
+    `;
+  }
+}
+
+function renderEmpty(): void {
+  const content = document.getElementById("content");
+  if (content) {
+    content.innerHTML = `
+      <div class="state-empty">
+        <div style="font-size: 28px; margin-bottom: 12px">🔍</div>
+        Navigate to a job listing on LinkedIn, Indeed, or Hiring.cafe to see your fit score.
+      </div>
+    `;
+  }
+}
+
+function renderError(message: string): void {
+  const content = document.getElementById("content");
+  if (content) {
+    content.innerHTML = `
+      <div class="state-error">
+        <div style="font-size: 28px; margin-bottom: 12px">⚠️</div>
+        ${message}
+      </div>
+    `;
+  }
+}
+
+function renderScore(
+  stored: StoredScore,
+  tabUrl: string,
+  isApplied: boolean,
+): void {
+  const { result, jobTitle, company, timestamp, salary, easyApply, jobAge } =
+    stored;
 
   const timestampEl = document.getElementById("timestamp");
   if (timestampEl) {
     const mins = Math.round((Date.now() - timestamp) / 60000);
     timestampEl.textContent = mins < 1 ? "just now" : `${mins}m ago`;
   }
+
+  const jobIdMatch = tabUrl.match(/currentJobId=(\d+)/);
+  const jobId = jobIdMatch ? jobIdMatch[1] : "";
+
+  const applyClass = result.should_apply ? "yes" : "no";
+  const applyText = result.should_apply ? "✓ Apply" : "✗ Skip";
+
+  const metaBadges = [
+    `<span class="apply-badge ${applyClass}">${applyText}</span>`,
+    isApplied ? `<span class="applied-badge">✓ Applied</span>` : "",
+    salary ? `<span class="salary-badge">$ ${salary}</span>` : "",
+    easyApply ? `<span class="easy-apply-badge">⚡ Easy Apply</span>` : "",
+    jobAge ? `<span class="age-badge">🕐 ${jobAge}</span>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
 
   const directMatchesHtml = result.direct_matches
     .map(
@@ -145,19 +220,24 @@ function renderScore(stored: StoredScore): void {
     )
     .join("");
 
-  const applyClass = result.should_apply ? "yes" : "no";
-  const applyText = result.should_apply ? "✓ Apply" : "✗ Skip";
-
   const html = `
     <div class="score-hero">
       ${buildScoreRing(result.fit_score)}
       <div class="score-meta">
         <div class="score-job-title">${jobTitle}</div>
         <div class="score-company">${company}</div>
-        <span class="apply-badge ${applyClass}">${applyText}</span>
+        <div class="badge-row">${metaBadges}</div>
       </div>
     </div>
     <div class="verdict">${result.one_line_verdict}</div>
+    <div class="action-bar">
+      <button class="btn btn-reanalyze" id="btn-reanalyze" data-job-id="${jobId}" data-url="${tabUrl}">
+        ↺ Re-analyze
+      </button>
+      <button class="btn btn-applied ${isApplied ? "done" : ""}" id="btn-applied" data-job-id="${jobId}">
+        ${isApplied ? "✓ Applied" : "Mark Applied"}
+      </button>
+    </div>
     ${buildSection("Direct matches", "#4ade80", result.direct_matches.length, directMatchesHtml, true)}
     ${buildSection("Transferable", "#facc15", result.transferable.length, transferableHtml)}
     ${buildSection("Gaps", "#f87171", result.gaps.length, gapsHtml)}
@@ -166,30 +246,67 @@ function renderScore(stored: StoredScore): void {
   `;
 
   const content = document.getElementById("content");
-  if (content) content.innerHTML = html;
-}
-
-function renderEmpty(): void {
-  const content = document.getElementById("content");
   if (content) {
-    content.innerHTML = `
-      <div class="state-empty">
-        <div style="font-size: 28px; margin-bottom: 12px">🔍</div>
-        Navigate to a job listing on LinkedIn, Indeed, or Hiring.cafe to see your fit score.
-      </div>
-    `;
+    content.innerHTML = html;
+    attachActionListeners(tabUrl);
   }
 }
 
-function renderError(message: string): void {
-  const content = document.getElementById("content");
-  if (content) {
-    content.innerHTML = `
-      <div class="state-error">
-        <div style="font-size: 28px; margin-bottom: 12px">⚠️</div>
-        ${message}
-      </div>
-    `;
+function attachActionListeners(tabUrl: string): void {
+  const reanalyzeBtn = document.getElementById("btn-reanalyze");
+  if (reanalyzeBtn) {
+    reanalyzeBtn.addEventListener("click", () => {
+      reanalyzeBtn.textContent = "Analyzing...";
+      (reanalyzeBtn as HTMLButtonElement).disabled = true;
+      renderLoading();
+
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs[0];
+        if (!tab?.id) return;
+
+        chrome.tabs.sendMessage(tab.id, {
+          type: "TRIGGER_REANALYZE",
+          url: tabUrl,
+        });
+
+        let attempts = 0;
+        const poll = setInterval(() => {
+          attempts++;
+          chrome.storage.local.get(`score_${tabUrl}`, (data) => {
+            const stored = data[`score_${tabUrl}`] as StoredScore | undefined;
+            if (stored && stored.timestamp > Date.now() - 30000) {
+              clearInterval(poll);
+              const jobId = tabUrl.match(/currentJobId=(\d+)/)?.[1] ?? "";
+              chrome.storage.local.get(`applied_${jobId}`, (appliedData) => {
+                const isApplied = !!appliedData[`applied_${jobId}`];
+                renderScore(stored, tabUrl, isApplied);
+              });
+            }
+          });
+          if (attempts > 30) clearInterval(poll);
+        }, 1000);
+      });
+    });
+  }
+
+  const appliedBtn = document.getElementById("btn-applied");
+  if (appliedBtn && !appliedBtn.classList.contains("done")) {
+    appliedBtn.addEventListener("click", () => {
+      const jobId = appliedBtn.getAttribute("data-job-id") ?? "";
+      if (!jobId) return;
+
+      chrome.runtime.sendMessage(
+        { type: "MARK_APPLIED", jobId },
+        (response) => {
+          if (response?.success) {
+            appliedBtn.textContent = "✓ Applied";
+            appliedBtn.classList.add("done");
+            (appliedBtn as HTMLButtonElement).disabled = true;
+            console.log("[JobScout Popup] Marked as applied:", jobId);
+          }
+        },
+      );
+    });
   }
 }
 
@@ -222,20 +339,52 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     return;
   }
 
-  chrome.runtime.sendMessage(
-    { type: "GET_SCORE", url: tab.url },
-    (response) => {
-      if (chrome.runtime.lastError) {
-        renderError("Could not connect to JobScout background worker.");
-        return;
-      }
+  const jobIdMatch = tab.url.match(/currentJobId=(\d+)/);
+  const jobId = jobIdMatch ? jobIdMatch[1] : null;
 
-      if (!response?.success) {
-        renderEmpty();
-        return;
-      }
+  chrome.storage.local.get(`score_${tab.url}`, (data) => {
+    const stored = data[`score_${tab.url}`] as StoredScore | undefined;
 
-      renderScore(response.data);
-    },
-  );
+    if (stored) {
+      const appliedKey = jobId ? `applied_${jobId}` : "";
+      chrome.storage.local.get(appliedKey, (appliedData) => {
+        const isApplied = !!appliedData[appliedKey];
+        renderScore(stored, tab.url!, isApplied);
+      });
+      return;
+    }
+
+    if (jobId) {
+      chrome.runtime.sendMessage(
+        { type: "GET_SCORE_FROM_BACKEND", jobId },
+        (response) => {
+          if (response?.success) {
+            const backendData = response.data as BackendScoreResponse;
+            const reconstructed: StoredScore = {
+              result: {
+                fit_score: backendData.fit_score,
+                should_apply: backendData.should_apply,
+                one_line_verdict: backendData.one_line_verdict,
+                direct_matches: backendData.direct_matches,
+                transferable: backendData.transferable,
+                gaps: backendData.gaps,
+                red_flags: backendData.red_flags,
+                green_flags: backendData.green_flags,
+              },
+              jobTitle: backendData.job_title,
+              company: backendData.company,
+              timestamp: new Date(backendData.created_at).getTime(),
+            };
+
+            chrome.storage.local.set({ [`score_${tab.url}`]: reconstructed });
+            renderScore(reconstructed, tab.url!, false);
+          } else {
+            renderLoading();
+          }
+        },
+      );
+    } else {
+      renderLoading();
+    }
+  });
 });

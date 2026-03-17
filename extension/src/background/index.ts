@@ -7,18 +7,32 @@ interface AnalyzeRequest {
   url: string;
 }
 
-const BACKEND_URL = "http://127.0.0.1:8000/api/v1/analyze";
+const BACKEND_URL = "http://127.0.0.1:8000/api/v1";
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[JobScout] Extension installed");
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.type === "ANALYZE_JOB") {
+  if (message.type === "ANALYZE_JOB" || message.type === "REANALYZE_JOB") {
     console.log(
-      "[JobScout BG] Received ANALYZE_JOB for:",
+      "[JobScout BG] Received",
+      message.type,
+      "for:",
       message.payload.job_title,
     );
+
+    if (message.type === "REANALYZE_JOB") {
+      const jobIdMatch = message.payload.url.match(/currentJobId=(\d+)/);
+      if (jobIdMatch) {
+        chrome.storage.local.remove(
+          [`score_${message.payload.url}`, `jobid_${jobIdMatch[1]}`],
+          () => {
+            console.log("[JobScout BG] Cleared cache for re-analysis");
+          },
+        );
+      }
+    }
 
     fetchAnalysis(message.payload)
       .then((result) => {
@@ -37,7 +51,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "GET_SCORE") {
-    console.log("[JobScout BG] Received GET_SCORE for url:", message.url);
+    console.log("[JobScout BG] GET_SCORE for url:", message.url);
 
     chrome.storage.local.get(`score_${message.url}`, (data) => {
       const key = `score_${message.url}`;
@@ -45,10 +59,41 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         console.log("[JobScout BG] Score found in storage");
         sendResponse({ success: true, data: data[key] });
       } else {
-        console.log("[JobScout BG] No score found for this URL");
         sendResponse({ success: false });
       }
     });
+
+    return true;
+  }
+
+  if (message.type === "GET_SCORE_FROM_BACKEND") {
+    console.log(
+      "[JobScout BG] Fetching score from backend for job_id:",
+      message.jobId,
+    );
+
+    fetch(`${BACKEND_URL}/score/${message.jobId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Not found`);
+        return r.json();
+      })
+      .then((data) => sendResponse({ success: true, data }))
+      .catch(() => sendResponse({ success: false }));
+
+    return true;
+  }
+
+  if (message.type === "MARK_APPLIED") {
+    console.log("[JobScout BG] Marking applied for job_id:", message.jobId);
+
+    chrome.storage.local.set({ [`applied_${message.jobId}`]: true }, () => {
+      console.log("[JobScout BG] Marked applied in storage");
+    });
+
+    fetch(`${BACKEND_URL}/applied/${message.jobId}`, { method: "POST" })
+      .then((r) => r.json())
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
 
     return true;
   }
@@ -57,7 +102,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function fetchAnalysis(payload: AnalyzeRequest) {
   console.log("[JobScout BG] Fetching from backend...");
 
-  const response = await fetch(BACKEND_URL, {
+  const response = await fetch(`${BACKEND_URL}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

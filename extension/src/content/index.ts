@@ -1,5 +1,7 @@
 console.log("[JobScout] Content script loaded on:", window.location.href);
 
+import { checkAndInjectFromStorage, updateBadgeForJobId } from "./badge";
+
 interface ScoreCategory {
   item: string;
   detail: string;
@@ -50,10 +52,7 @@ function extractLinkedInJob(): {
   const jobDescription = descriptionEl.innerText.trim();
 
   if (jobDescription.length < 100) {
-    console.warn(
-      "[JobScout] Description too short, not fully rendered yet:",
-      jobDescription.length,
-    );
+    console.warn("[JobScout] Description too short:", jobDescription.length);
     return null;
   }
 
@@ -119,19 +118,31 @@ async function analyzeJob(): Promise<void> {
 
       const result: AnalyzeResponse = response.data;
 
-      chrome.storage.local.set(
-        {
-          [`score_${currentUrl}`]: {
-            result,
-            jobTitle: data.jobTitle,
-            company: data.company,
-            timestamp: Date.now(),
-          },
+      const jobIdMatch = currentUrl.match(/currentJobId=(\d+)/);
+      const jobId = jobIdMatch ? jobIdMatch[1] : null;
+
+      const storagePayload: Record<string, unknown> = {
+        [`score_${currentUrl}`]: {
+          result,
+          jobTitle: data.jobTitle,
+          company: data.company,
+          timestamp: Date.now(),
         },
-        () => {
-          console.log("[JobScout] Score saved to storage for:", currentUrl);
-        },
-      );
+      };
+
+      if (jobId) {
+        storagePayload[`jobid_${jobId}`] = {
+          score: result.fit_score,
+          shouldApply: result.should_apply,
+        };
+      }
+
+      chrome.storage.local.set(storagePayload, () => {
+        console.log("[JobScout] Score saved, updating badges for job:", jobId);
+        if (jobId) {
+          updateBadgeForJobId(jobId, result.fit_score, result.should_apply);
+        }
+      });
 
       console.log("[JobScout] ===== SCORE RESULT =====");
       console.log(`[JobScout] Fit Score:    ${result.fit_score}/100`);
@@ -178,13 +189,41 @@ function onUrlChange(newUrl: string): void {
   if (!isJobPage) return;
 
   const hasJobId =
-    newUrl.includes("currentJobId=") || newUrl.match(/\/jobs\/view\/\d+/);
+    newUrl.includes("currentJobId=") || !!newUrl.match(/\/jobs\/view\/\d+/);
   if (!hasJobId) {
     console.log("[JobScout] No specific job selected yet, waiting...");
     return;
   }
 
   waitForDescriptionThenAnalyze();
+}
+
+function initCardObserver(): void {
+  console.log("[JobScout] Initializing card observer");
+
+  const processCard = (card: Element): void => {
+    if (card.hasAttribute("data-jobscout-processed")) return;
+    card.setAttribute("data-jobscout-processed", "true");
+    checkAndInjectFromStorage(card);
+  };
+
+  const scanCards = (): void => {
+    const cards = document.querySelectorAll(
+      ".job-card-container, .jobs-search-results__list-item, [data-job-id]",
+    );
+    cards.forEach(processCard);
+  };
+
+  const cardObserver = new MutationObserver(() => {
+    scanCards();
+  });
+
+  cardObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+
+  scanCards();
 }
 
 function initUrlWatcher(): void {
@@ -206,5 +245,15 @@ function initUrlWatcher(): void {
   console.log("[JobScout] URL watcher initialized");
 }
 
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "TRIGGER_REANALYZE") {
+    console.log("[JobScout] Re-analyze triggered from popup");
+    lastAnalyzedUrl = "";
+    analysisInProgress = false;
+    waitForDescriptionThenAnalyze();
+  }
+});
+
 initUrlWatcher();
+initCardObserver();
 onUrlChange(window.location.href);

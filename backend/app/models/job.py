@@ -28,3 +28,4 @@ class JobAnalysis(Base):
         nullable=False,
         default=lambda: datetime.now(timezone.utc)
     )
+    applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

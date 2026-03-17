@@ -72,3 +72,54 @@ async def get_history(
         .limit(limit)\
         .all()
     return records
+
+@router.get("/score/{job_id}")
+async def get_score_by_job_id(
+    job_id: str,
+    db: Session = Depends(get_db)
+) -> dict:
+    logger.info("Score lookup by job_id: %s", job_id)
+
+    record = db.query(JobAnalysis)\
+        .filter(JobAnalysis.url.contains(job_id))\
+        .order_by(JobAnalysis.created_at.desc())\
+        .first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="No score found for this job ID")
+
+    return {
+        "job_id": job_id,
+        "fit_score": record.fit_score,
+        "should_apply": record.should_apply,
+        "one_line_verdict": record.one_line_verdict,
+        "direct_matches": record.direct_matches,
+        "transferable": record.transferable,
+        "gaps": record.gaps,
+        "red_flags": record.red_flags,
+        "green_flags": record.green_flags,
+        "job_title": record.job_title,
+        "company": record.company,
+        "created_at": record.created_at.isoformat(),
+    }
+
+
+@router.post("/applied/{job_id}")
+async def mark_applied(
+    job_id: str,
+    db: Session = Depends(get_db)
+) -> dict:
+    logger.info("Marking job as applied: %s", job_id)
+
+    record = db.query(JobAnalysis)\
+        .filter(JobAnalysis.url.contains(job_id))\
+        .order_by(JobAnalysis.created_at.desc())\
+        .first()
+
+    if not record:
+        raise HTTPException(status_code=404, detail="No score found for this job ID")
+
+    record.applied = True
+    db.commit()
+    logger.info("Marked job %s as applied", job_id)
+    return {"job_id": job_id, "applied": True}
