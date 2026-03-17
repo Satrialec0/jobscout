@@ -5,6 +5,7 @@ const BADGE_CLASS = "jobscout-badge";
 interface StoredJobScore {
   score: number;
   shouldApply: boolean;
+  verdict?: string;
 }
 
 function getScoreColor(score: number): {
@@ -33,6 +34,7 @@ function buildBadgeStyle(bg: string, text: string, border: string): string {
     "display: inline-block",
     "margin-left: 6px",
     "vertical-align: middle",
+    "cursor: help",
   ].join("; ");
 }
 
@@ -48,13 +50,19 @@ function createPendingBadge(): HTMLSpanElement {
 function createScoreBadge(
   score: number,
   shouldApply: boolean,
+  verdict?: string,
 ): HTMLSpanElement {
   const badge = document.createElement("span");
   badge.className = BADGE_CLASS;
   const { bg, text, border } = getScoreColor(score);
   badge.style.cssText = buildBadgeStyle(bg, text, border);
   badge.textContent = `${score}${shouldApply ? " ✓" : ""}`;
-  badge.title = `JobScout: ${score}/100 — ${shouldApply ? "Apply" : "Skip"}`;
+
+  const tooltipText = verdict
+    ? `${score}/100 — ${verdict}`
+    : `JobScout: ${score}/100 — ${shouldApply ? "Apply" : "Skip"}`;
+  badge.title = tooltipText;
+
   return badge;
 }
 
@@ -100,13 +108,14 @@ export function updateBadgeForJobId(
   jobId: string,
   score: number,
   shouldApply: boolean,
+  verdict?: string,
 ): void {
   const cards = document.querySelectorAll(`[data-jobscout-id="${jobId}"]`);
 
   cards.forEach((card) => {
     const existing = card.querySelector(`.${BADGE_CLASS}`);
     if (!existing) return;
-    const newBadge = createScoreBadge(score, shouldApply);
+    const newBadge = createScoreBadge(score, shouldApply, verdict);
     existing.replaceWith(newBadge);
     console.log("[JobScout Badge] Updated badge for job:", jobId, "→", score);
   });
@@ -125,7 +134,11 @@ export function checkAndInjectFromStorage(card: Element): void {
     if (stored) {
       const target = findBadgeTarget(card);
       if (!target) return;
-      const badge = createScoreBadge(stored.score, stored.shouldApply);
+      const badge = createScoreBadge(
+        stored.score,
+        stored.shouldApply,
+        stored.verdict,
+      );
       target.appendChild(badge);
       card.setAttribute("data-jobscout-id", jobId);
       console.log(

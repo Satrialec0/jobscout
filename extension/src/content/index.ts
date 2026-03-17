@@ -21,10 +21,48 @@ interface AnalyzeResponse {
 let analysisInProgress = false;
 let lastAnalyzedUrl = "";
 
+function extractSalary(): string | null {
+  const salarySelectors = [
+    ".job-details-jobs-unified-top-card__job-insight--highlight",
+    ".job-details-jobs-unified-top-card__salary-info",
+    "[class*='salary']",
+    ".compensation__salary",
+  ];
+
+  for (const selector of salarySelectors) {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el) {
+      const text = el.innerText.trim();
+      if (text.includes("$") || text.toLowerCase().includes("k/yr")) {
+        console.log("[JobScout] Salary found via selector:", text);
+        return text.split("\n")[0].trim();
+      }
+    }
+  }
+
+  const descriptionEl = document.querySelector<HTMLElement>(
+    ".jobs-description__content .jobs-box__html-content",
+  );
+  if (descriptionEl) {
+    const text = descriptionEl.innerText;
+    const salaryRegex =
+      /\$[\d,]+(?:\s*[-–]\s*\$[\d,]+)?(?:\s*(?:\/yr|\/year|\/hr|\/hour|k\/yr|,000\/yr))?/gi;
+    const matches = text.match(salaryRegex);
+    if (matches && matches.length > 0) {
+      console.log("[JobScout] Salary found via regex:", matches[0]);
+      return matches[0].trim();
+    }
+  }
+
+  console.log("[JobScout] No salary found");
+  return null;
+}
+
 function extractLinkedInJob(): {
   jobTitle: string;
   company: string;
   jobDescription: string;
+  salary: string | null;
 } | null {
   console.log("[JobScout] Attempting LinkedIn extraction");
 
@@ -56,13 +94,16 @@ function extractLinkedInJob(): {
     return null;
   }
 
+  const salary = extractSalary();
+
   console.log("[JobScout] Extracted:", {
     jobTitle,
     company,
     descriptionLength: jobDescription.length,
+    salary,
   });
 
-  return { jobTitle, company, jobDescription };
+  return { jobTitle, company, jobDescription, salary };
 }
 
 async function analyzeJob(): Promise<void> {
@@ -127,6 +168,7 @@ async function analyzeJob(): Promise<void> {
           jobTitle: data.jobTitle,
           company: data.company,
           timestamp: Date.now(),
+          salary: data.salary,
         },
       };
 
@@ -148,6 +190,7 @@ async function analyzeJob(): Promise<void> {
       console.log(`[JobScout] Fit Score:    ${result.fit_score}/100`);
       console.log(`[JobScout] Should Apply: ${result.should_apply}`);
       console.log(`[JobScout] Verdict:      ${result.one_line_verdict}`);
+      console.log(`[JobScout] Salary:       ${data.salary ?? "not found"}`);
       console.log("[JobScout] =========================");
     },
   );

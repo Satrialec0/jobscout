@@ -156,13 +156,20 @@ function renderScore(
 
   const applyClass = result.should_apply ? "yes" : "no";
   const applyText = result.should_apply ? "✓ Apply" : "✗ Skip";
+  const isStale = jobAge
+    ? jobAge.includes("month") ||
+      (jobAge.includes("week") && parseInt(jobAge) >= 4) ||
+      (jobAge.includes("day") && parseInt(jobAge) >= 30)
+    : false;
 
   const metaBadges = [
     `<span class="apply-badge ${applyClass}">${applyText}</span>`,
     isApplied ? `<span class="applied-badge">✓ Applied</span>` : "",
     salary ? `<span class="salary-badge">$ ${salary}</span>` : "",
     easyApply ? `<span class="easy-apply-badge">⚡ Easy Apply</span>` : "",
-    jobAge ? `<span class="age-badge">🕐 ${jobAge}</span>` : "",
+    jobAge
+      ? `<span class="age-badge${isStale ? " stale" : ""}">🕐 ${jobAge}</span>`
+      : "",
   ]
     .filter(Boolean)
     .join("");
