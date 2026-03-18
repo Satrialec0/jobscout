@@ -51,6 +51,159 @@ function detectSite(url: string): "linkedin" | "indeed" | "hiring-cafe" | null {
   return null;
 }
 
+const BAD_FIT_KEYWORDS = [
+  "sales representative",
+  "recruiter",
+  "truck driver",
+  "diesel mechanic",
+  "retail associate",
+  "customer service representative",
+  "customer success",
+  "customer service",
+  "retail",
+  "driver",
+  "technician",
+  "diesel",
+  "mechanic",
+  "hvac",
+  "plumber",
+  "carpenter",
+  "welder",
+];
+
+function shouldKeywordDim(title: string): boolean {
+  const lower = title.toLowerCase();
+  return BAD_FIT_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function dimCard(card: Element): void {
+  (card as HTMLElement).style.opacity = "0.35";
+  (card as HTMLElement).style.transition = "opacity 0.2s ease";
+}
+
+function undimCard(card: Element): void {
+  (card as HTMLElement).style.opacity = "";
+}
+
+function getCardJobId(card: Element): string | null {
+  return (
+    card.getAttribute("data-jobscout-hc-id") ||
+    card.getAttribute("data-job-id") ||
+    extractCardJobId(card, window.location.href)
+  );
+}
+
+function injectVisibilityButton(card: Element, isDimmed: boolean): void {
+  const existingBtn = card.querySelector("[data-jobscout-vis-btn]");
+  if (existingBtn) existingBtn.remove();
+
+  const jobId = getCardJobId(card);
+  if (!jobId) return;
+
+  // Find badge target — next to badge for HC, or title area for LI/Indeed
+  // For HC cards inject into the native action bar so it's above the click overlay
+  // HC bottom row — always visible, contains carousel arrows and action buttons
+  const hcActionBar = card.querySelector<HTMLElement>(
+    "div.flex.mb-4, div.flex.items-center.space-x-4, div[class*='flex'][class*='space-x-4'][class*='items-center']",
+  );
+
+  const badgeTarget =
+    hcActionBar ??
+    card.querySelector<HTMLElement>("[data-jobscout-badge]")?.parentElement ??
+    card.querySelector<HTMLElement>("div.mt-1") ??
+    card.querySelector<HTMLElement>(".job-card-list__title") ??
+    card.querySelector<HTMLElement>(".jobTitle") ??
+    card.querySelector<HTMLElement>("h2.jobTitle") ??
+    card.querySelector<HTMLElement>(".job-card-container__link");
+  if (!badgeTarget) return;
+
+  const btn = document.createElement("span");
+  btn.setAttribute("data-jobscout-vis-btn", jobId);
+  btn.style.cssText = `
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    cursor: pointer;
+    background: #1e293b;
+    color: #64748b;
+    border: 1px solid #334155;
+    user-select: none;
+    position: relative;
+    z-index: 10000;
+    pointer-events: all;
+  `;
+  btn.textContent = isDimmed ? "👁 Show" : "👁 Hide";
+  btn.title = isDimmed ? "Show this card" : "Hide this card";
+
+  btn.addEventListener("mouseenter", () => {
+    btn.style.color = "#94a3b8";
+  });
+  btn.addEventListener("mouseleave", () => {
+    btn.style.color = "#64748b";
+  });
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (isDimmed) {
+      // User wants to show — un-dim and save override
+      undimCard(card);
+      chrome.storage.local.set({ [`user_undimmed_${jobId}`]: true });
+      chrome.storage.local.remove(`user_dimmed_${jobId}`);
+      injectVisibilityButton(card, false);
+    } else {
+      // User wants to hide — dim and save override
+      dimCard(card);
+      chrome.storage.local.set({ [`user_dimmed_${jobId}`]: true });
+      chrome.storage.local.remove(`user_undimmed_${jobId}`);
+      injectVisibilityButton(card, true);
+    }
+  });
+
+  badgeTarget.appendChild(btn);
+}
+
+function applyVisibility(
+  card: Element,
+  jobId: string,
+  score?: number,
+  title?: string,
+): void {
+  const undimKey = `user_undimmed_${jobId}`;
+  const dimKey = `user_dimmed_${jobId}`;
+
+  chrome.storage.local.get([undimKey, dimKey], (data) => {
+    if (data[undimKey]) {
+      // User explicitly showed this card — always show
+      undimCard(card);
+      injectVisibilityButton(card, false);
+      return;
+    }
+    if (data[dimKey]) {
+      // User explicitly hid this card — always hide
+      dimCard(card);
+      injectVisibilityButton(card, true);
+      return;
+    }
+
+    // No user override — apply automatic rules
+    const keywordDim = title ? shouldKeywordDim(title) : false;
+    const scoreDim = score !== undefined && score < 30;
+
+    if (keywordDim || scoreDim) {
+      dimCard(card);
+      injectVisibilityButton(card, true);
+    } else {
+      undimCard(card);
+      injectVisibilityButton(card, false);
+    }
+  });
+}
+
 function extractCurrentJob(url: string): JobExtraction | null {
   const site = detectSite(url);
   if (!site) {
@@ -247,6 +400,18 @@ function displayResult(
     result.should_apply,
     result.one_line_verdict,
   );
+  // Update visibility with final score — respects user overrides
+  const scoredCard = document.querySelector<HTMLElement>(
+    `[data-jobscout-hc-id="${effectiveJobId}"], [data-job-id="${effectiveJobId}"]`,
+  );
+  if (scoredCard) {
+    applyVisibility(
+      scoredCard,
+      effectiveJobId,
+      result.fit_score,
+      data.jobTitle,
+    );
+  }
   // Update hiring.cafe card badge if present
   if (detectSite(currentUrl) === "hiring-cafe") {
     // Find card by current jobId OR update card that modal belongs to
@@ -704,6 +869,9 @@ function initCardObserver(): void {
         card.setAttribute("data-jobscout-processed", "true");
         card.setAttribute("data-jobscout-hc-id", jobId);
 
+        // Apply visibility — checks user overrides, cache, then keywords
+        applyVisibility(card, jobId, undefined, title);
+
         const badgeTarget = titleSpan.closest("div.mt-1");
         if (!badgeTarget) return;
 
@@ -713,6 +881,8 @@ function initCardObserver(): void {
             | { score: number; shouldApply: boolean; verdict: string }
             | undefined;
           if (stored) {
+            // Update visibility with actual score
+            applyVisibility(card, jobId, stored.score, title);
             const badge = document.createElement("span");
             badge.setAttribute("data-jobscout-badge", jobId);
             badge.style.cssText = `
@@ -743,6 +913,35 @@ function initCardObserver(): void {
       }
 
       card.setAttribute("data-jobscout-processed", "true");
+
+      // Keyword dim for LinkedIn/Indeed
+      const titleEl = card.querySelector<HTMLElement>(
+        ".job-card-list__title, .jobTitle, [class*='title']",
+      );
+      const cardTitle = titleEl?.innerText?.trim() ?? "";
+      const cardJobId = extractCardJobId(card, window.location.href);
+
+      if (cardJobId) {
+        chrome.storage.local.get(`jobid_${cardJobId}`, (data) => {
+          const stored = data[`jobid_${cardJobId}`] as
+            | { score: number; shouldApply: boolean; verdict: string }
+            | undefined;
+          // Delay vis button so badge.ts has time to inject the badge first
+          setTimeout(() => {
+            applyVisibility(card, cardJobId, stored?.score, cardTitle);
+          }, 200);
+        });
+      } else if (cardTitle) {
+        setTimeout(() => {
+          applyVisibility(
+            card,
+            `pending_${cardTitle.substring(0, 20)}`,
+            undefined,
+            cardTitle,
+          );
+        }, 200);
+      }
+
       checkAndInjectFromStorage(card);
     });
   };
