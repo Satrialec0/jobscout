@@ -150,6 +150,7 @@ function renderScore(
   stored: StoredScore,
   tabUrl: string,
   isApplied: boolean,
+  jobId: string,
 ): void {
   const { result, jobTitle, company, timestamp, salary, easyApply, jobAge } =
     stored;
@@ -159,9 +160,6 @@ function renderScore(
     const mins = Math.round((Date.now() - timestamp) / 60000);
     timestampEl.textContent = mins < 1 ? "just now" : `${mins}m ago`;
   }
-
-  const jobIdMatch = tabUrl.match(/currentJobId=(\d+)/);
-  const jobId = jobIdMatch ? jobIdMatch[1] : "";
 
   const applyClass = result.should_apply ? "yes" : "no";
   const applyText = result.should_apply ? "✓ Apply" : "✗ Skip";
@@ -272,11 +270,11 @@ function renderScore(
   const content = document.getElementById("content");
   if (content) {
     content.innerHTML = html;
-    attachActionListeners(tabUrl);
+    attachActionListeners(tabUrl, jobId);
   }
 }
 
-function attachActionListeners(tabUrl: string): void {
+function attachActionListeners(tabUrl: string, jobId: string): void {
   const reanalyzeBtn = document.getElementById("btn-reanalyze");
   if (reanalyzeBtn) {
     reanalyzeBtn.addEventListener("click", () => {
@@ -296,14 +294,14 @@ function attachActionListeners(tabUrl: string): void {
         let attempts = 0;
         const poll = setInterval(() => {
           attempts++;
-          chrome.storage.local.get(`score_${tabUrl}`, (data) => {
-            const stored = data[`score_${tabUrl}`] as StoredScore | undefined;
+          const cacheKey = `score_jobid_${jobId}`;
+          chrome.storage.local.get(cacheKey, (data) => {
+            const stored = data[cacheKey] as StoredScore | undefined;
             if (stored && stored.timestamp > Date.now() - 30000) {
               clearInterval(poll);
-              const jobId = tabUrl.match(/currentJobId=(\d+)/)?.[1] ?? "";
               chrome.storage.local.get(`applied_${jobId}`, (appliedData) => {
                 const isApplied = !!appliedData[`applied_${jobId}`];
-                renderScore(stored, tabUrl, isApplied);
+                renderScore(stored, tabUrl, isApplied, jobId);
               });
             }
           });
@@ -316,7 +314,6 @@ function attachActionListeners(tabUrl: string): void {
   const appliedBtn = document.getElementById("btn-applied");
   if (appliedBtn && !appliedBtn.classList.contains("done")) {
     appliedBtn.addEventListener("click", () => {
-      const jobId = appliedBtn.getAttribute("data-job-id") ?? "";
       if (!jobId) return;
 
       chrome.runtime.sendMessage(
@@ -344,6 +341,28 @@ function attachActionListeners(tabUrl: string): void {
   if (body) body.classList.toggle("open");
 };
 
+function extractJobIdFromUrl(url: string): string | null {
+  // LinkedIn
+  const linkedInMatch = url.match(/currentJobId=(\d+)/);
+  if (linkedInMatch) return linkedInMatch[1];
+
+  const linkedInViewMatch = url.match(/\/jobs\/view\/(\d+)/);
+  if (linkedInViewMatch) return linkedInViewMatch[1];
+
+  // Indeed
+  const vjkMatch = url.match(/[?&]vjk=([a-zA-Z0-9]+)/);
+  if (vjkMatch) return vjkMatch[1];
+
+  const jkMatch = url.match(/[?&]jk=([a-zA-Z0-9]+)/);
+  if (jkMatch) return jkMatch[1];
+
+  return null;
+}
+
+function isHiringCafe(url: string): boolean {
+  return url.includes("hiring.cafe");
+}
+
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   const tab = tabs[0];
   if (!tab?.url) {
@@ -351,73 +370,113 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     return;
   }
 
-  const supportedSites = [
-    "linkedin.com/jobs",
-    "indeed.com/viewjob",
-    "hiring.cafe",
-  ];
   const isSupported =
-    (tab.url!.includes("linkedin.com/jobs") &&
-      (tab.url!.includes("currentJobId=") ||
-        tab.url!.includes("/jobs/view/"))) ||
-    (tab.url!.includes("indeed.com") &&
-      (tab.url!.includes("vjk=") ||
-        tab.url!.includes("jk=") ||
-        tab.url!.includes("/viewjob"))) ||
-    tab.url!.includes("hiring.cafe");
+    (tab.url.includes("linkedin.com/jobs") &&
+      (tab.url.includes("currentJobId=") || tab.url.includes("/jobs/view/"))) ||
+    (tab.url.includes("indeed.com") &&
+      (tab.url.includes("vjk=") ||
+        tab.url.includes("jk=") ||
+        tab.url.includes("/viewjob"))) ||
+    tab.url.includes("hiring.cafe");
 
   if (!isSupported) {
     renderEmpty();
     return;
   }
 
-  const jobIdMatch = tab.url.match(/currentJobId=(\d+)/);
-  const jobId = jobIdMatch ? jobIdMatch[1] : null;
+  const urlJobId = extractJobIdFromUrl(tab.url);
 
-  chrome.storage.local.get(`score_${tab.url}`, (data) => {
-    const stored = data[`score_${tab.url}`] as StoredScore | undefined;
+  if (isHiringCafe(tab.url)) {
+    const checkHiringCafe = (attempt: number) => {
+      chrome.storage.local.get(null, (allData) => {
+        const pendingJobId = allData["hc_pending_job_id"] as string | null;
+
+        const hcEntries = Object.entries(allData)
+          .filter(([key]) => key.startsWith("score_jobid_hc_"))
+          .map(([key, val]) => ({ key, stored: val as StoredScore }))
+          .filter(({ stored }) => stored?.result != null)
+          .sort(
+            (a, b) => (b.stored.timestamp ?? 0) - (a.stored.timestamp ?? 0),
+          );
+
+        const mostRecentKey = hcEntries[0]?.key?.replace("score_jobid_", "");
+        const analysisInProgress =
+          pendingJobId && pendingJobId !== mostRecentKey;
+
+        if (analysisInProgress) {
+          // New job is being analyzed — show loading and keep polling
+          renderLoading();
+          if (attempt < 20) {
+            setTimeout(() => checkHiringCafe(attempt + 1), 1000);
+          } else {
+            renderError("Analysis timed out. Try reopening the job.");
+          }
+        } else if (hcEntries.length > 0) {
+          // Score ready — show it
+          const { key, stored } = hcEntries[0];
+          const hcJobId = key.replace("score_jobid_", "");
+          renderScore(stored, tab.url!, false, hcJobId);
+        } else if (attempt < 20) {
+          renderLoading();
+          setTimeout(() => checkHiringCafe(attempt + 1), 1000);
+        } else {
+          renderError(
+            "No score found. Open a job listing on Hiring.cafe first.",
+          );
+        }
+      });
+    };
+    checkHiringCafe(0);
+    return;
+  }
+
+  // LinkedIn and Indeed — look up by URL-based job ID
+  if (!urlJobId) {
+    renderLoading();
+    return;
+  }
+
+  const cacheKey = `score_jobid_${urlJobId}`;
+  chrome.storage.local.get(cacheKey, (data) => {
+    const stored = data[cacheKey] as StoredScore | undefined;
 
     if (stored) {
-      const appliedKey = jobId ? `applied_${jobId}` : "";
-      chrome.storage.local.get(appliedKey, (appliedData) => {
-        const isApplied = !!appliedData[appliedKey];
-        renderScore(stored, tab.url!, isApplied);
+      chrome.storage.local.get(`applied_${urlJobId}`, (appliedData) => {
+        const isApplied = !!appliedData[`applied_${urlJobId}`];
+        renderScore(stored, tab.url!, isApplied, urlJobId);
       });
       return;
     }
 
-    if (jobId) {
-      chrome.runtime.sendMessage(
-        { type: "GET_SCORE_FROM_BACKEND", jobId },
-        (response) => {
-          if (response?.success) {
-            const backendData = response.data;
-            const reconstructed: StoredScore = {
-              result: {
-                fit_score: backendData.fit_score,
-                should_apply: backendData.should_apply,
-                one_line_verdict: backendData.one_line_verdict,
-                direct_matches: backendData.direct_matches,
-                transferable: backendData.transferable,
-                gaps: backendData.gaps,
-                red_flags: backendData.red_flags,
-                green_flags: backendData.green_flags,
-                salary_estimate: backendData.salary_estimate,
-              },
-              jobTitle: backendData.job_title,
-              company: backendData.company,
-              timestamp: new Date(backendData.created_at).getTime(),
-            };
+    // Fallback: try fetching from backend by job ID
+    chrome.runtime.sendMessage(
+      { type: "GET_SCORE_FROM_BACKEND", jobId: urlJobId },
+      (response) => {
+        if (response?.success) {
+          const backendData = response.data;
+          const reconstructed: StoredScore = {
+            result: {
+              fit_score: backendData.fit_score,
+              should_apply: backendData.should_apply,
+              one_line_verdict: backendData.one_line_verdict,
+              direct_matches: backendData.direct_matches,
+              transferable: backendData.transferable,
+              gaps: backendData.gaps,
+              red_flags: backendData.red_flags,
+              green_flags: backendData.green_flags,
+              salary_estimate: backendData.salary_estimate,
+            },
+            jobTitle: backendData.job_title,
+            company: backendData.company,
+            timestamp: new Date(backendData.created_at).getTime(),
+          };
 
-            chrome.storage.local.set({ [`score_${tab.url}`]: reconstructed });
-            renderScore(reconstructed, tab.url!, false);
-          } else {
-            renderLoading();
-          }
-        },
-      );
-    } else {
-      renderLoading();
-    }
+          chrome.storage.local.set({ [cacheKey]: reconstructed });
+          renderScore(reconstructed, tab.url!, false, urlJobId);
+        } else {
+          renderLoading();
+        }
+      },
+    );
   });
 });

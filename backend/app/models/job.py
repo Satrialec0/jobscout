@@ -11,13 +11,13 @@ class JobAnalysis(Base):
     __tablename__ = "job_analyses"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    url: Mapped[str | None] = mapped_column(String(2048), nullable=True, index=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
     job_title: Mapped[str] = mapped_column(String(256), nullable=False)
     company: Mapped[str] = mapped_column(String(256), nullable=False)
     job_description: Mapped[str] = mapped_column(Text, nullable=False)
     fit_score: Mapped[int] = mapped_column(Integer, nullable=False)
     should_apply: Mapped[bool] = mapped_column(Boolean, nullable=False)
-    one_line_verdict: Mapped[str] = mapped_column(String(512), nullable=False)
+    one_line_verdict: Mapped[str] = mapped_column(Text, nullable=False)
     direct_matches: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     transferable: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     gaps: Mapped[list] = mapped_column(JSON, nullable=False, default=list)

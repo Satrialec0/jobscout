@@ -12,6 +12,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _is_dynamic_url(url: str) -> bool:
+    """Returns True for URLs where multiple jobs share the same URL (e.g. hiring.cafe)."""
+    return "hiring.cafe" in url
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_job_posting(
     request: AnalyzeRequest,
@@ -19,10 +24,39 @@ async def analyze_job_posting(
 ) -> AnalyzeResponse:
     logger.info("Received analyze request: %s at %s", request.job_title, request.company)
 
-    if request.url:
+    if request.url and not _is_dynamic_url(request.url):
         cached = get_cached_analysis(db, request.url)
         if cached:
             logger.info("Returning cached result for url: %s", request.url)
+            salary_estimate = None
+            if cached.salary_estimate:
+                from app.schemas.analyze import SalaryEstimate
+                try:
+                    salary_estimate = SalaryEstimate(**cached.salary_estimate)
+                except Exception:
+                    pass
+
+            return AnalyzeResponse(
+                fit_score=cached.fit_score,
+                should_apply=cached.should_apply,
+                one_line_verdict=cached.one_line_verdict,
+                direct_matches=cached.direct_matches,
+                transferable=cached.transferable,
+                gaps=cached.gaps,
+                red_flags=cached.red_flags,
+                green_flags=cached.green_flags,
+                salary_estimate=salary_estimate,
+            )
+
+    elif request.url and _is_dynamic_url(request.url):
+        cached = get_cached_analysis_by_title_company(
+            db, request.job_title, request.company
+        )
+        if cached:
+            logger.info(
+                "Returning cached result for hiring.cafe job: %s at %s",
+                request.job_title, request.company
+            )
             salary_estimate = None
             if cached.salary_estimate:
                 from app.schemas.analyze import SalaryEstimate
@@ -69,6 +103,21 @@ async def analyze_job_posting(
     )
 
     return result
+
+
+def get_cached_analysis_by_title_company(
+    db: Session,
+    job_title: str,
+    company: str
+):
+    """Cache lookup by job_title + company for sites with dynamic URLs."""
+    return db.query(JobAnalysis)\
+        .filter(
+            JobAnalysis.job_title == job_title,
+            JobAnalysis.company == company
+        )\
+        .order_by(JobAnalysis.created_at.desc())\
+        .first()
 
 
 @router.get("/history", response_model=list[JobHistoryItem])
