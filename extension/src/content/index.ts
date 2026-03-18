@@ -76,6 +76,193 @@ function shouldKeywordDim(title: string): boolean {
   return BAD_FIT_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
+// ===== ADAPTIVE KEYWORD LEARNING =====
+
+const MIN_HIDE_SAMPLES = 3;
+const DIM_CONFIDENCE_THRESHOLD = 0.7;
+
+const NGRAM_STOPWORDS = new Set([
+  // Seniority — too generic, appear in good and bad roles
+  "senior",
+  "junior",
+  "associate",
+  "principal",
+  "staff",
+  "lead",
+  "head",
+  "director",
+  "vp",
+  "manager",
+  "executive",
+  // Generic role words
+  "engineer",
+  "engineering",
+  "specialist",
+  "analyst",
+  "coordinator",
+  "consultant",
+  "advisor",
+  "officer",
+  "administrator",
+  // Location/time words
+  "remote",
+  "hybrid",
+  "onsite",
+  "part",
+  "full",
+  "time",
+  "contract",
+  // Common filler
+  "and",
+  "the",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "new",
+  "job",
+]);
+
+function extractNgrams(title: string): string[] {
+  const words = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !NGRAM_STOPWORDS.has(w));
+
+  const ngrams: string[] = [...words]; // unigrams
+  for (let i = 0; i < words.length - 1; i++) {
+    // Only include bigrams where neither word is a stopword
+    ngrams.push(`${words[i]} ${words[i + 1]}`);
+  }
+  return ngrams;
+}
+
+function reEvaluateAllCards(): void {
+  const site = detectSite(window.location.href);
+  if (!site) return;
+
+  const cardSelectors: Record<string, string> = {
+    linkedin:
+      ".job-card-container, .jobs-search-results__list-item, [data-job-id]",
+    indeed: "[id^='sj_'], .job_seen_beacon, .resultContent",
+    "hiring-cafe": "div.relative.bg-white.rounded-xl",
+  };
+
+  document.querySelectorAll(cardSelectors[site]).forEach((card) => {
+    const jobId = getCardJobId(card);
+    if (!jobId) return;
+
+    const titleEl = card.querySelector<HTMLElement>(
+      "span[class*='font-bold'][class*='line-clamp'], .job-card-list__title, .jobTitle",
+    );
+    const cardTitle = titleEl?.innerText?.trim() ?? "";
+    if (!cardTitle) return;
+
+    // Only re-evaluate cards with no user override
+    const undimKey = `user_undimmed_${jobId}`;
+    const dimKey = `user_dimmed_${jobId}`;
+    chrome.storage.local.get([undimKey, dimKey], (data) => {
+      if (data[undimKey] || data[dimKey]) return; // User override — skip
+      applyVisibility(card, jobId, undefined, cardTitle);
+    });
+  });
+}
+
+function recordHideSignals(title: string): void {
+  const ngrams = extractNgrams(title);
+  if (ngrams.length === 0) return;
+
+  const hideKeys = ngrams.map((ng) => `kw_hide_${ng}`);
+  const showKeys = ngrams.map((ng) => `kw_show_${ng}`);
+
+  chrome.storage.local.get([...hideKeys, ...showKeys], (data) => {
+    const updates: Record<string, number> = {};
+    let thresholdCrossed = false;
+
+    hideKeys.forEach((key, i) => {
+      const newCount = ((data[key] as number) ?? 0) + 1;
+      updates[key] = newCount;
+      const ng = ngrams[i];
+      const showCount = (data[`kw_show_${ng}`] as number) ?? 0;
+      const total = newCount + showCount;
+      const confidence = newCount / total;
+      if (
+        newCount >= MIN_HIDE_SAMPLES &&
+        confidence >= DIM_CONFIDENCE_THRESHOLD
+      ) {
+        thresholdCrossed = true;
+        console.log(
+          `[JobScout] Threshold crossed for: "${ng}" (${newCount}H/${showCount}S)`,
+        );
+      }
+    });
+
+    chrome.storage.local.set(updates, () => {
+      console.log(
+        "[JobScout] Recorded hide signals for:",
+        title.substring(0, 40),
+      );
+      if (thresholdCrossed) {
+        // Re-evaluate all visible cards immediately
+        reEvaluateAllCards();
+      }
+    });
+  });
+}
+
+function recordShowSignals(title: string): void {
+  const ngrams = extractNgrams(title);
+  if (ngrams.length === 0) return;
+
+  const keys = ngrams.map((ng) => `kw_show_${ng}`);
+  chrome.storage.local.get(keys, (data) => {
+    const updates: Record<string, number> = {};
+    keys.forEach((key) => {
+      updates[key] = ((data[key] as number) ?? 0) + 1;
+    });
+    chrome.storage.local.set(updates);
+    console.log(
+      "[JobScout] Recorded show signals for:",
+      title.substring(0, 40),
+    );
+  });
+}
+
+function shouldLearnedKeywordDim(
+  title: string,
+  callback: (dim: boolean) => void,
+): void {
+  const ngrams = extractNgrams(title);
+  if (ngrams.length === 0) {
+    callback(false);
+    return;
+  }
+
+  const hideKeys = ngrams.map((ng) => `kw_hide_${ng}`);
+  const showKeys = ngrams.map((ng) => `kw_show_${ng}`);
+
+  chrome.storage.local.get([...hideKeys, ...showKeys], (data) => {
+    for (const ng of ngrams) {
+      const hideCount = (data[`kw_hide_${ng}`] as number) ?? 0;
+      const showCount = (data[`kw_show_${ng}`] as number) ?? 0;
+      const total = hideCount + showCount;
+      if (hideCount >= MIN_HIDE_SAMPLES && total > 0) {
+        const confidence = hideCount / total;
+        if (confidence >= DIM_CONFIDENCE_THRESHOLD) {
+          console.log(
+            `[JobScout] Learned dim: "${ng}" (${hideCount}H/${showCount}S = ${Math.round(confidence * 100)}%)`,
+          );
+          callback(true);
+          return;
+        }
+      }
+    }
+    callback(false);
+  });
+}
+
 function dimCard(card: Element): void {
   (card as HTMLElement).style.opacity = "0.35";
   (card as HTMLElement).style.transition = "opacity 0.2s ease";
@@ -149,17 +336,26 @@ function injectVisibilityButton(card: Element, isDimmed: boolean): void {
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     e.preventDefault();
+
+    // Extract title for signal recording
+    const titleEl = card.querySelector<HTMLElement>(
+      "span[class*='font-bold'][class*='line-clamp'], .job-card-list__title, .jobTitle",
+    );
+    const cardTitle = titleEl?.innerText?.trim() ?? "";
+
     if (isDimmed) {
-      // User wants to show — un-dim and save override
+      // User wants to show — un-dim, save override, record show signal
       undimCard(card);
       chrome.storage.local.set({ [`user_undimmed_${jobId}`]: true });
       chrome.storage.local.remove(`user_dimmed_${jobId}`);
+      if (cardTitle) recordShowSignals(cardTitle);
       injectVisibilityButton(card, false);
     } else {
-      // User wants to hide — dim and save override
+      // User wants to hide — dim, save override, record hide signal
       dimCard(card);
       chrome.storage.local.set({ [`user_dimmed_${jobId}`]: true });
       chrome.storage.local.remove(`user_undimmed_${jobId}`);
+      if (cardTitle) recordHideSignals(cardTitle);
       injectVisibilityButton(card, true);
     }
   });
@@ -197,6 +393,20 @@ function applyVisibility(
     if (keywordDim || scoreDim) {
       dimCard(card);
       injectVisibilityButton(card, true);
+      return;
+    }
+
+    // Check learned keywords — async
+    if (title) {
+      shouldLearnedKeywordDim(title, (learnedDim) => {
+        if (learnedDim) {
+          dimCard(card);
+          injectVisibilityButton(card, true);
+        } else {
+          undimCard(card);
+          injectVisibilityButton(card, false);
+        }
+      });
     } else {
       undimCard(card);
       injectVisibilityButton(card, false);
