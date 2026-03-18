@@ -210,6 +210,7 @@ function saveAndDisplay(
     jobAge: data.jobAge,
     jobAgeIsOld: data.jobAgeIsOld,
     timestamp: Date.now(),
+    url: currentUrl,
   };
 
   cachePayload[`jobid_${effectiveJobId}`] = {
@@ -345,7 +346,7 @@ function displayResult(
 function waitForContentThenAnalyze(forceJobId?: string): void {
   console.log("[JobScout] Waiting for job content to render...");
   let attempts = 0;
-  const maxAttempts = 20;
+  const maxAttempts = 40;
 
   const interval = setInterval(() => {
     attempts++;
@@ -383,7 +384,7 @@ function waitForContentThenAnalyze(forceJobId?: string): void {
         "attempts",
       );
     }
-  }, 300);
+  }, 500);
 }
 
 function onUrlChange(newUrl: string): void {
@@ -402,7 +403,29 @@ function onUrlChange(newUrl: string): void {
     updateOverlayActiveJob(jobIdMatch[1]);
   }
 
-  waitForContentThenAnalyze();
+  if (bulkModeActive) {
+    // In bulk mode — extract and queue without waiting for user to trigger
+    console.log(
+      "[JobScout Bulk] URL change detected in bulk mode, queuing job",
+    );
+    setTimeout(() => {
+      const data = extractCurrentJob(newUrl);
+      if (!data) return;
+      const effectiveJobId = data.jobId;
+      chrome.storage.local.get(`score_jobid_${effectiveJobId}`, (cached) => {
+        if (cached[`score_jobid_${effectiveJobId}`]) {
+          console.log(
+            "[JobScout Bulk] Already scored, skipping:",
+            effectiveJobId,
+          );
+          return;
+        }
+        addToBulkQueue(effectiveJobId, data, newUrl);
+      });
+    }, 1500); // Wait for content to render
+  } else {
+    waitForContentThenAnalyze();
+  }
 }
 
 // ===== BULK SCORING =====
@@ -421,6 +444,8 @@ let bulkTotal = 0;
 let bulkCompleted = 0;
 
 let bulkModeActive = false; // ADD THIS LINE near the other bulk variables
+// Clear any stale bulk mode state from previous session
+chrome.storage.local.set({ hc_bulk_mode_active: false });
 
 function bulkHashTitle(title: string): string {
   let hash = 0;
@@ -742,7 +767,7 @@ function initUrlWatcher(): void {
   console.log("[JobScout] URL watcher initialized");
 }
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "TRIGGER_REANALYZE") {
     console.log("[JobScout] Re-analyze triggered from popup");
     lastAnalyzedJobId = "";
@@ -762,6 +787,29 @@ chrome.runtime.onMessage.addListener((message) => {
 
   if (message.type === "GET_BULK_STATUS") {
     updateBulkProgress();
+  }
+  if (message.type === "HIGHLIGHT_HC_CARD") {
+    const jobId = message.jobId as string;
+    const card = document.querySelector<HTMLElement>(
+      `[data-jobscout-hc-id="${jobId}"]`,
+    );
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.style.transition = "box-shadow 0.3s ease";
+      card.style.boxShadow = "0 0 0 3px #38bdf8";
+      setTimeout(() => {
+        card.style.boxShadow = "";
+      }, 2000);
+      sendResponse({ found: true });
+    } else {
+      sendResponse({ found: false });
+    }
+    return true; // Keep message channel open for async response
+  }
+  if (message.type === "SCROLL_TO_LOAD") {
+    window.scrollBy({ top: 600, behavior: "smooth" });
+    sendResponse({});
+    return true;
   }
 });
 

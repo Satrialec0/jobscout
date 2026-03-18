@@ -94,7 +94,7 @@ function buildSection(
   const openClass = defaultOpen ? "open" : "";
   return `
     <div class="section">
-      <div class="section-header" onclick="toggleSection(this)">
+      <div class="section-header">
         <span class="section-title">
           <span class="section-dot" style="background: ${dotColor}"></span>
           ${title}
@@ -147,7 +147,15 @@ function renderError(message: string): void {
 }
 
 function buildBulkBarHtml(tabUrl: string): string {
-  if (!tabUrl.includes("hiring.cafe")) return "";
+  const isSupported =
+    tabUrl.includes("hiring.cafe") ||
+    (tabUrl.includes("linkedin.com/jobs") &&
+      (tabUrl.includes("currentJobId=") || tabUrl.includes("/jobs/view/"))) ||
+    (tabUrl.includes("indeed.com") &&
+      (tabUrl.includes("vjk=") ||
+        tabUrl.includes("jk=") ||
+        tabUrl.includes("/viewjob")));
+  if (!isSupported) return "";
   return `
     <div class="bulk-bar">
       <button class="btn btn-bulk" id="btn-bulk-score">
@@ -287,6 +295,16 @@ function renderScore(
   if (content) {
     content.innerHTML = html;
     attachActionListeners(tabUrl, jobId);
+
+    // Wire section toggles — inline onclick blocked by CSP in MV3
+    content.querySelectorAll(".section-header").forEach((header) => {
+      header.addEventListener("click", () => {
+        const chevron = header.querySelector(".section-chevron");
+        const body = header.nextElementSibling;
+        if (chevron) chevron.classList.toggle("open");
+        if (body) body.classList.toggle("open");
+      });
+    });
   }
 }
 
@@ -611,3 +629,10 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     );
   });
 });
+// Wire up dashboard button
+const dashBtn = document.getElementById("btn-dashboard");
+if (dashBtn) {
+  dashBtn.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+  });
+}

@@ -3,7 +3,7 @@
   "name": "JobScout",
   "version": "0.1.0",
   "description": "Real-time job fit scoring as you browse",
-  "permissions": ["activeTab", "storage", "tabs"],
+  "permissions": ["activeTab", "storage", "tabs", "windows"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://www.indeed.com/*",
@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://www.linkedin.com/jobs/*",
+        "https://www.linkedin.com/*",
         "https://www.indeed.com/*",
         "https://indeed.com/*",
         "https://hiring.cafe/*"
@@ -31,5 +31,11 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "JobScout"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["dashboard.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

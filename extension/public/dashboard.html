@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JobScout — History</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 24px;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .header-logo {
+        width: 24px;
+        height: 24px;
+        background: #38bdf8;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+        color: #0f172a;
+        flex-shrink: 0;
+      }
+
+      .header-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #f1f5f9;
+      }
+
+      .header-count {
+        font-size: 12px;
+        color: #475569;
+      }
+
+      .header-actions {
+        margin-left: auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .btn {
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: opacity 0.15s;
+      }
+      .btn:hover {
+        opacity: 0.85;
+      }
+
+      .btn-export {
+        background: #1e293b;
+        color: #94a3b8;
+        border: 1px solid #334155;
+      }
+
+      .btn-clear {
+        background: #2d1515;
+        color: #f87171;
+        border: 1px solid #7f1d1d;
+      }
+
+      .controls {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 24px;
+        border-bottom: 1px solid #1e293b;
+        flex-wrap: wrap;
+      }
+
+      .control-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .control-label {
+        font-size: 11px;
+        color: #64748b;
+        white-space: nowrap;
+      }
+
+      select,
+      input[type="range"] {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        cursor: pointer;
+      }
+
+      input[type="range"] {
+        padding: 0;
+        width: 80px;
+      }
+
+      .range-value {
+        font-size: 11px;
+        color: #94a3b8;
+        min-width: 28px;
+      }
+
+      .search-input {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-size: 12px;
+        width: 200px;
+      }
+
+      .search-input::placeholder {
+        color: #475569;
+      }
+
+      .stats-bar {
+        display: flex;
+        gap: 24px;
+        padding: 10px 24px;
+        border-bottom: 1px solid #1e293b;
+        background: #080f1e;
+      }
+
+      .stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .stat-value {
+        font-size: 18px;
+        font-weight: 700;
+        color: #f1f5f9;
+      }
+
+      .stat-label {
+        font-size: 10px;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .stat-value.green {
+        color: #4ade80;
+      }
+      .stat-value.yellow {
+        color: #facc15;
+      }
+      .stat-value.red {
+        color: #f87171;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+        padding: 16px 24px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+      }
+
+      thead th {
+        padding: 8px 12px;
+        text-align: left;
+        font-size: 10px;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        border-bottom: 1px solid #1e293b;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+      }
+
+      thead th:hover {
+        color: #94a3b8;
+      }
+      thead th.sorted {
+        color: #38bdf8;
+      }
+
+      tbody tr {
+        border-bottom: 1px solid #0d1829;
+        transition: background 0.1s;
+      }
+
+      tbody tr:hover {
+        background: #111827;
+      }
+
+      td {
+        padding: 10px 12px;
+        vertical-align: middle;
+      }
+
+      .score-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .job-title {
+        font-weight: 500;
+        color: #e2e8f0;
+        max-width: 280px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .company {
+        color: #64748b;
+        font-size: 11px;
+      }
+
+      .verdict-cell {
+        color: #64748b;
+        font-size: 11px;
+        max-width: 300px;
+        line-height: 1.4;
+        font-style: italic;
+      }
+
+      .salary-cell {
+        color: #a78bfa;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .site-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+        background: #1e293b;
+        color: #64748b;
+        white-space: nowrap;
+      }
+
+      .site-badge.linkedin {
+        background: #0a2540;
+        color: #38bdf8;
+      }
+      .site-badge.indeed {
+        background: #1a1200;
+        color: #fbbf24;
+      }
+      .site-badge.hiring-cafe {
+        background: #1a0a2e;
+        color: #a78bfa;
+      }
+
+      .apply-pill {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .apply-pill.yes {
+        background: #052e16;
+        color: #4ade80;
+      }
+      .apply-pill.no {
+        background: #2d1515;
+        color: #f87171;
+      }
+
+      .applied-check {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        accent-color: #38bdf8;
+      }
+
+      .date-cell {
+        color: #475569;
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 60px 24px;
+        color: #475569;
+        font-size: 14px;
+        line-height: 1.8;
+      }
+
+      .empty-state .big {
+        font-size: 32px;
+        margin-bottom: 12px;
+      }
+
+      .expand-btn {
+        background: none;
+        border: none;
+        color: #475569;
+        cursor: pointer;
+        font-size: 10px;
+        padding: 2px 4px;
+      }
+      .expand-btn:hover {
+        color: #94a3b8;
+      }
+
+      .detail-row td {
+        background: #080f1e;
+        padding: 12px 24px;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+
+      .detail-section h4 {
+        font-size: 10px;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 6px;
+      }
+
+      .detail-section ul {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .detail-section li {
+        font-size: 11px;
+        color: #94a3b8;
+        display: flex;
+        gap: 6px;
+        line-height: 1.4;
+      }
+
+      .detail-section li::before {
+        content: "•";
+        flex-shrink: 0;
+        color: inherit;
+        opacity: 0.5;
+      }
+
+      .detail-section.green h4 {
+        color: #4ade80;
+      }
+      .detail-section.green li {
+        color: #86efac;
+      }
+      .detail-section.red h4 {
+        color: #f87171;
+      }
+      .detail-section.red li {
+        color: #fca5a5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-logo">JS</div>
+      <span class="header-title">JobScout — History</span>
+      <span class="header-count" id="job-count"></span>
+      <div class="header-actions">
+        <button class="btn btn-export" id="btn-export">⬇ Export CSV</button>
+        <button class="btn btn-clear" id="btn-clear">🗑 Clear All</button>
+      </div>
+    </div>
+
+    <div class="stats-bar" id="stats-bar"></div>
+
+    <div class="controls">
+      <div class="control-group">
+        <span class="control-label">Search</span>
+        <input
+          type="text"
+          class="search-input"
+          id="search"
+          placeholder="Job title or company..."
+        />
+      </div>
+      <div class="control-group">
+        <span class="control-label">Site</span>
+        <select id="filter-site">
+          <option value="all">All sites</option>
+          <option value="linkedin">LinkedIn</option>
+          <option value="indeed">Indeed</option>
+          <option value="hiring-cafe">Hiring.cafe</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Min score</span>
+        <input
+          type="range"
+          id="filter-score"
+          min="0"
+          max="100"
+          step="5"
+          value="0"
+        />
+        <span class="range-value" id="score-val">0+</span>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Recommend</span>
+        <select id="filter-apply">
+          <option value="all">All</option>
+          <option value="yes">Apply</option>
+          <option value="no">Skip</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <span class="control-label">Applied</span>
+        <select id="filter-applied">
+          <option value="all">All</option>
+          <option value="yes">Applied</option>
+          <option value="no">Not applied</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table id="job-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th data-col="score" class="sorted">Score ↕</th>
+            <th data-col="title">Job Title</th>
+            <th data-col="company">Company</th>
+            <th data-col="salary">Salary</th>
+            <th data-col="site">Site</th>
+            <th data-col="apply">Rec.</th>
+            <th data-col="applied">Applied</th>
+            <th data-col="date">Analyzed</th>
+          </tr>
+        </thead>
+        <tbody id="job-tbody"></tbody>
+      </table>
+      <div class="empty-state" id="empty-state" style="display: none">
+        <div class="big">📋</div>
+        No scored jobs found matching your filters.
+      </div>
+    </div>
+
+    <script src="dashboard.js"></script>
+  </body>
+</html>
