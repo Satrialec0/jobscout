@@ -248,15 +248,47 @@ function displayResult(
   );
   // Update hiring.cafe card badge if present
   if (detectSite(currentUrl) === "hiring-cafe") {
-    const card = document.querySelector<HTMLElement>(
+    // Find card by current jobId OR update card that modal belongs to
+    let card = document.querySelector<HTMLElement>(
       `[data-jobscout-hc-id="${effectiveJobId}"]`,
     );
+
+    // If not found by jobId, find the card whose modal is currently open
+    // (carousel case — card still has old jobId)
+    if (!card) {
+      const modal = document.querySelector<HTMLElement>(".chakra-modal__body");
+      if (modal) {
+        const titleEl = modal.querySelector<HTMLElement>(
+          "h2.font-extrabold, h2[class*='font-extrabold'], h1",
+        );
+        const modalTitle = titleEl?.innerText?.trim() ?? "";
+        if (modalTitle) {
+          // Find card whose title span matches the modal title
+          document
+            .querySelectorAll<HTMLElement>("div.relative.bg-white.rounded-xl")
+            .forEach((c) => {
+              const titleSpan = c.querySelector<HTMLElement>(
+                "span[class*='font-bold'][class*='line-clamp']",
+              );
+              if (titleSpan?.innerText?.trim() === modalTitle) {
+                card = c;
+              }
+            });
+        }
+      }
+    }
+
     if (card) {
+      // Update card's jobId to current job (fixes carousel)
+      card.setAttribute("data-jobscout-hc-id", effectiveJobId);
+
       const badgeTarget = card.querySelector<HTMLElement>("div.mt-1");
-      const existing = badgeTarget?.querySelector(
-        `[data-jobscout-badge="${effectiveJobId}"]`,
-      );
-      if (badgeTarget && !existing) {
+      if (badgeTarget) {
+        // Remove any existing badge (from previous carousel position)
+        badgeTarget
+          .querySelectorAll("[data-jobscout-badge]")
+          .forEach((b) => b.remove());
+
         const badge = document.createElement("span");
         badge.setAttribute("data-jobscout-badge", effectiveJobId);
         badge.style.cssText = `

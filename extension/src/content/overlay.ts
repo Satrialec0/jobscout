@@ -48,7 +48,7 @@ function injectStyles(): void {
       position: fixed;
       top: 60px;
       right: 0;
-      width: 220px;
+      width: 260px;
       max-height: calc(100vh - 80px);
       background: #0f172a;
       border: 1px solid #1e293b;
@@ -62,7 +62,7 @@ function injectStyles(): void {
       transition: transform 0.2s ease;
     }
     #${OVERLAY_ID}.collapsed {
-      transform: translateX(220px);
+      transform: translateX(260px);
     }
     #${OVERLAY_ID} .jobscout-overlay-header {
       display: flex;
@@ -214,7 +214,7 @@ function buildJobItem(job: OverlayJob, isActive: boolean): HTMLElement {
       ${job.score}
     </div>
     <div class="jobscout-job-info">
-      <div class="jobscout-job-title">${job.jobTitle}</div>
+      <div class="jobscout-job-title" title="${job.jobTitle} — ${job.company}">${job.jobTitle}</div>
       <div class="jobscout-job-company">${job.company}</div>
       <div class="js-job-meta">
         <span class="jobscout-meta-tag" style="background:${bg};color:${applyColor}">${applyText}</span>
