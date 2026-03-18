@@ -477,7 +477,18 @@ async function analyzeJob(forceJobId?: string): Promise<void> {
         easyApply: boolean;
         jobAge: string | null;
         jobAgeIsOld: boolean;
+        url?: string;
       };
+      // Backfill URL if missing from old entry
+      if (!stored.url && currentUrl) {
+        chrome.storage.local.set({
+          [cacheKey]: { ...stored, url: currentUrl },
+        });
+        console.log(
+          "[JobScout] Backfilled URL for cached job:",
+          effectiveJobId,
+        );
+      }
       lastAnalyzedJobId = effectiveJobId;
       displayResult(stored.result, data, effectiveJobId, currentUrl);
       return;
