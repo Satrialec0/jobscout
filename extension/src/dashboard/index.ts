@@ -619,5 +619,156 @@ document.querySelectorAll("thead th[data-col]").forEach((th) => {
   });
 });
 
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const tab = (btn as HTMLElement).getAttribute("data-tab")!;
+    document
+      .querySelectorAll(".tab-btn")
+      .forEach((b) => b.classList.remove("active"));
+    document
+      .querySelectorAll(".tab-panel")
+      .forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`tab-${tab}`)?.classList.add("active");
+    if (tab === "filters") renderFilters();
+    if (tab === "history") {
+      renderTable();
+      updateCount();
+    }
+  });
+});
+
+// Render whichever tab is active on load
+const activeTab = document
+  .querySelector(".tab-btn.active")
+  ?.getAttribute("data-tab");
+if (activeTab === "filters") renderFilters();
+
+function renderFilters(): void {
+  renderHiddenJobs();
+  renderLearnedKeywords();
+}
+
+function renderHiddenJobs(): void {
+  const container = document.getElementById("hidden-jobs-list");
+  if (!container) return;
+
+  chrome.storage.local.get(null, (data) => {
+    const hiddenKeys = Object.keys(data).filter((k) =>
+      k.startsWith("user_dimmed_"),
+    );
+
+    if (hiddenKeys.length === 0) {
+      container.innerHTML = `<div class="empty-state" style="padding:20px">No manually hidden jobs.</div>`;
+      return;
+    }
+
+    // Get score entries to match titles
+    const jobIds = hiddenKeys.map((k) => k.replace("user_dimmed_", ""));
+    const scoreKeys = jobIds.map((id) => `score_jobid_${id}`);
+
+    chrome.storage.local.get(scoreKeys, (scores) => {
+      container.innerHTML = "";
+      jobIds.forEach((jobId, i) => {
+        const scoreEntry = scores[`score_jobid_${jobId}`] as
+          | { jobTitle?: string; company?: string }
+          | undefined;
+        const title = scoreEntry?.jobTitle ?? jobId;
+        const company = scoreEntry?.company ?? "Unknown company";
+
+        const row = document.createElement("div");
+        row.className = "filter-row";
+        row.innerHTML = `
+          <div class="filter-row-info">
+            <div class="filter-row-title">${title}</div>
+            <div class="filter-row-meta">${company}</div>
+          </div>
+          <div class="filter-row-actions">
+            <button class="btn-unhide" data-job-id="${jobId}">👁 Show</button>
+          </div>
+        `;
+        container.appendChild(row);
+
+        row.querySelector(".btn-unhide")?.addEventListener("click", () => {
+          chrome.storage.local.remove(`user_dimmed_${jobId}`, () => {
+            chrome.storage.local.set({ [`user_undimmed_${jobId}`]: true });
+            row.remove();
+            if (container.children.length === 0) {
+              container.innerHTML = `<div class="empty-state" style="padding:20px">No manually hidden jobs.</div>`;
+            }
+          });
+        });
+      });
+    });
+  });
+}
+
+function renderLearnedKeywords(): void {
+  const container = document.getElementById("learned-keywords-list");
+  if (!container) return;
+
+  chrome.storage.local.get(null, (data) => {
+    const hideKeys = Object.keys(data).filter((k) => k.startsWith("kw_hide_"));
+
+    if (hideKeys.length === 0) {
+      container.innerHTML = `<div class="empty-state" style="padding:20px">No learned keywords yet.</div>`;
+      return;
+    }
+
+    const ngrams = hideKeys.map((k) => k.replace("kw_hide_", ""));
+    const showKeys = ngrams.map((ng) => `kw_show_${ng}`);
+
+    chrome.storage.local.get(showKeys, (showData) => {
+      const entries = ngrams
+        .map((ng) => {
+          const hideCount = (data[`kw_hide_${ng}`] as number) ?? 0;
+          const showCount = (showData[`kw_show_${ng}`] as number) ?? 0;
+          const total = hideCount + showCount;
+          const confidence = total > 0 ? hideCount / total : 0;
+          return { ng, hideCount, showCount, confidence };
+        })
+        .sort(
+          (a, b) => b.confidence - a.confidence || b.hideCount - a.hideCount,
+        );
+
+      container.innerHTML = "";
+      entries.forEach(({ ng, hideCount, showCount, confidence }) => {
+        const isActive = hideCount >= 3 && confidence >= 0.7;
+        const pct = Math.round(confidence * 100);
+
+        const row = document.createElement("div");
+        row.className = "filter-row";
+        row.innerHTML = `
+          <div class="filter-row-info">
+            <div class="filter-row-title">
+              <span class="kw-tag">${ng}</span>
+              ${isActive ? `<span style="margin-left:8px;font-size:10px;color:#f87171">● auto-dimming</span>` : `<span style="margin-left:8px;font-size:10px;color:#475569">building signal</span>`}
+            </div>
+            <div class="filter-row-meta">${hideCount} hides · ${showCount} shows · ${pct}% dim confidence</div>
+          </div>
+          <div class="filter-row-actions">
+            <div class="confidence-bar-wrap">
+              <div class="confidence-bar" style="width:${pct}%;opacity:${isActive ? 1 : 0.4}"></div>
+            </div>
+            <button class="btn-reset-kw" data-ng="${ng}">Reset</button>
+          </div>
+        `;
+        container.appendChild(row);
+
+        row.querySelector(".btn-reset-kw")?.addEventListener("click", () => {
+          chrome.storage.local.remove(
+            [`kw_hide_${ng}`, `kw_show_${ng}`],
+            () => {
+              row.remove();
+              if (container.children.length === 0) {
+                container.innerHTML = `<div class="empty-state" style="padding:20px">No learned keywords yet.</div>`;
+              }
+            },
+          );
+        });
+      });
+    });
+  });
+}
 // Load data
 loadJobs();

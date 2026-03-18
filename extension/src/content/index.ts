@@ -336,6 +336,20 @@ function injectVisibilityButton(card: Element, isDimmed: boolean): void {
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     e.preventDefault();
+    // Guard against extension context invalidation
+    try {
+      if (!chrome.runtime?.id) {
+        console.warn(
+          "[JobScout] Extension context invalidated — reload the page",
+        );
+        return;
+      }
+    } catch {
+      console.warn(
+        "[JobScout] Extension context invalidated — reload the page",
+      );
+      return;
+    }
 
     // Extract title for signal recording
     const titleEl = card.querySelector<HTMLElement>(

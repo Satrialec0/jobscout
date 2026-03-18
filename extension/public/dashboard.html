@@ -399,6 +399,147 @@
       .detail-section.red li {
         color: #fca5a5;
       }
+
+      .tab-bar {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+        padding: 0 24px;
+      }
+
+      .tab-btn {
+        padding: 10px 16px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition:
+          color 0.15s,
+          border-color 0.15s;
+      }
+
+      .tab-btn:hover {
+        color: #94a3b8;
+      }
+      .tab-btn.active {
+        color: #38bdf8;
+        border-bottom-color: #38bdf8;
+      }
+
+      .tab-panel {
+        display: none;
+      }
+      .tab-panel.active {
+        display: block;
+      }
+
+      .filters-wrap {
+        padding: 24px;
+      }
+
+      .filters-section {
+        margin-bottom: 32px;
+      }
+
+      .filters-section h3 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #94a3b8;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #1e293b;
+      }
+
+      .filter-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-radius: 6px;
+        border: 1px solid #1e293b;
+        background: #111827;
+        margin-bottom: 6px;
+      }
+
+      .filter-row:hover {
+        background: #1e293b;
+      }
+
+      .filter-row-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .filter-row-title {
+        font-size: 12px;
+        font-weight: 500;
+        color: #e2e8f0;
+      }
+
+      .filter-row-meta {
+        font-size: 11px;
+        color: #475569;
+      }
+
+      .filter-row-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      .btn-unhide {
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        background: #0c1a3a;
+        color: #38bdf8;
+        border: 1px solid #1e3a5f;
+      }
+
+      .btn-reset-kw {
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        background: #1e293b;
+        color: #94a3b8;
+        border: 1px solid #334155;
+      }
+
+      .confidence-bar-wrap {
+        width: 80px;
+        height: 6px;
+        background: #1e293b;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-right: 8px;
+      }
+
+      .confidence-bar {
+        height: 100%;
+        border-radius: 3px;
+        background: #f87171;
+      }
+
+      .kw-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #2d1515;
+        color: #f87171;
+        border: 1px solid #7f1d1d;
+        font-family: monospace;
+      }
     </style>
   </head>
   <body>
@@ -414,75 +555,104 @@
 
     <div class="stats-bar" id="stats-bar"></div>
 
-    <div class="controls">
-      <div class="control-group">
-        <span class="control-label">Search</span>
-        <input
-          type="text"
-          class="search-input"
-          id="search"
-          placeholder="Job title or company..."
-        />
-      </div>
-      <div class="control-group">
-        <span class="control-label">Site</span>
-        <select id="filter-site">
-          <option value="all">All sites</option>
-          <option value="linkedin">LinkedIn</option>
-          <option value="indeed">Indeed</option>
-          <option value="hiring-cafe">Hiring.cafe</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <span class="control-label">Min score</span>
-        <input
-          type="range"
-          id="filter-score"
-          min="0"
-          max="100"
-          step="5"
-          value="0"
-        />
-        <span class="range-value" id="score-val">0+</span>
-      </div>
-      <div class="control-group">
-        <span class="control-label">Recommend</span>
-        <select id="filter-apply">
-          <option value="all">All</option>
-          <option value="yes">Apply</option>
-          <option value="no">Skip</option>
-        </select>
-      </div>
-      <div class="control-group">
-        <span class="control-label">Applied</span>
-        <select id="filter-applied">
-          <option value="all">All</option>
-          <option value="yes">Applied</option>
-          <option value="no">Not applied</option>
-        </select>
-      </div>
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="history">📋 History</button>
+      <button class="tab-btn" data-tab="filters">🔍 Filters & Hidden</button>
     </div>
 
-    <div class="table-wrap">
-      <table id="job-table">
-        <thead>
-          <tr>
-            <th></th>
-            <th data-col="score" class="sorted">Score ↕</th>
-            <th data-col="title">Job Title</th>
-            <th data-col="company">Company</th>
-            <th data-col="salary">Salary</th>
-            <th data-col="site">Site</th>
-            <th data-col="apply">Rec.</th>
-            <th data-col="applied">Applied</th>
-            <th data-col="date">Analyzed</th>
-          </tr>
-        </thead>
-        <tbody id="job-tbody"></tbody>
-      </table>
-      <div class="empty-state" id="empty-state" style="display: none">
-        <div class="big">📋</div>
-        No scored jobs found matching your filters.
+    <div class="tab-panel active" id="tab-history">
+      <div class="controls">
+        <div class="control-group">
+          <span class="control-label">Search</span>
+          <input
+            type="text"
+            class="search-input"
+            id="search"
+            placeholder="Job title or company..."
+          />
+        </div>
+        <div class="control-group">
+          <span class="control-label">Site</span>
+          <select id="filter-site">
+            <option value="all">All sites</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="indeed">Indeed</option>
+            <option value="hiring-cafe">Hiring.cafe</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Min score</span>
+          <input
+            type="range"
+            id="filter-score"
+            min="0"
+            max="100"
+            step="5"
+            value="0"
+          />
+          <span class="range-value" id="score-val">0+</span>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Recommend</span>
+          <select id="filter-apply">
+            <option value="all">All</option>
+            <option value="yes">Apply</option>
+            <option value="no">Skip</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <span class="control-label">Applied</span>
+          <select id="filter-applied">
+            <option value="all">All</option>
+            <option value="yes">Applied</option>
+            <option value="no">Not applied</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="job-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th data-col="score" class="sorted">Score ↕</th>
+              <th data-col="title">Job Title</th>
+              <th data-col="company">Company</th>
+              <th data-col="salary">Salary</th>
+              <th data-col="site">Site</th>
+              <th data-col="apply">Rec.</th>
+              <th data-col="applied">Applied</th>
+              <th data-col="date">Analyzed</th>
+            </tr>
+          </thead>
+          <tbody id="job-tbody"></tbody>
+        </table>
+        <div class="empty-state" id="empty-state" style="display: none">
+          <div class="big">📋</div>
+          No scored jobs found matching your filters.
+        </div>
+      </div>
+    </div>
+    <!-- end tab-history -->
+
+    <div class="tab-panel" id="tab-filters">
+      <div class="filters-wrap">
+        <div class="filters-section">
+          <h3>🚫 Hidden Jobs</h3>
+          <div id="hidden-jobs-list">
+            <div class="empty-state" style="padding: 20px">
+              No manually hidden jobs.
+            </div>
+          </div>
+        </div>
+        <div class="filters-section">
+          <h3>🧠 Learned Keywords (auto-dim signals)</h3>
+          <div id="learned-keywords-list">
+            <div class="empty-state" style="padding: 20px">
+              No learned keywords yet. Hide jobs to build up signals.
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
