@@ -170,10 +170,10 @@ function injectStyles(): void {
       color: #475569;
       line-height: 1.6;
     }
-    #${TOGGLE_ID} {
-      position: fixed;
+#${TOGGLE_ID} {
+      position: absolute;
       top: 50%;
-      right: 0;
+      left: -21px;
       transform: translateY(-50%);
       width: 20px;
       height: 48px;
@@ -231,6 +231,18 @@ function buildJobItem(job: OverlayJob, isActive: boolean): HTMLElement {
       newUrl.searchParams.set("currentJobId", currentJobIdMatch[1]);
       window.history.pushState({}, "", newUrl.toString());
       window.dispatchEvent(new PopStateEvent("popstate"));
+    } else if (job.url.includes("hiring.cafe")) {
+      const card = document.querySelector<HTMLElement>(
+        `[data-jobscout-hc-id="${job.jobId}"]`,
+      );
+      if (card) {
+        card.scrollIntoView({ behavior: "smooth", block: "center" });
+        card.style.transition = "box-shadow 0.2s ease";
+        card.style.boxShadow = "0 0 0 3px #38bdf8";
+        setTimeout(() => {
+          card.style.boxShadow = "";
+        }, 1500);
+      }
     } else {
       window.location.href = job.url;
     }
@@ -297,6 +309,7 @@ function createOverlay(): void {
   const overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
   overlay.innerHTML = `
+    <div id="${TOGGLE_ID}" title="Toggle JobScout overlay">›</div>
     <div class="jobscout-overlay-header">
       <span class="jobscout-overlay-title">JobScout</span>
       <span class="jobscout-overlay-count">0 scored</span>
@@ -310,20 +323,14 @@ function createOverlay(): void {
   `;
   document.body.appendChild(overlay);
 
-  const toggle = document.createElement("div");
-  toggle.id = TOGGLE_ID;
-  toggle.textContent = "›";
-  toggle.title = "Toggle JobScout overlay";
-  document.body.appendChild(toggle);
-
-  toggle.addEventListener("click", () => {
-    isCollapsed = !isCollapsed;
-    overlay.classList.toggle("collapsed", isCollapsed);
-    toggle.textContent = isCollapsed ? "‹" : "›";
-    toggle.style.right = isCollapsed ? "0" : "220px";
-  });
-
-  toggle.style.right = "220px";
+  const toggle = document.getElementById(TOGGLE_ID);
+  if (toggle) {
+    toggle.addEventListener("click", () => {
+      isCollapsed = !isCollapsed;
+      overlay.classList.toggle("collapsed", isCollapsed);
+      toggle.textContent = isCollapsed ? "‹" : "›";
+    });
+  }
 
   const sortBtn = document.getElementById("jobscout-sort-btn");
   if (sortBtn) {
