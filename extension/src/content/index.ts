@@ -123,6 +123,9 @@ async function analyzeJob(forceJobId?: string): Promise<void> {
     sendToBackend(data, effectiveJobId, currentUrl, forceJobId);
   });
 }
+// Near the other module-level variables
+const inflightJobIds = new Set<string>();
+const completedJobIds = new Set<string>();
 
 function sendToBackend(
   data: JobExtraction,
@@ -130,6 +133,16 @@ function sendToBackend(
   currentUrl: string,
   forceJobId?: string,
 ): void {
+  if (!forceJobId && inflightJobIds.has(effectiveJobId)) {
+    console.log(
+      "[JobScout] Already in-flight, skipping duplicate sendToBackend:",
+      effectiveJobId,
+    );
+    return;
+  }
+  inflightJobIds.add(effectiveJobId);
+  analysisInProgress = true;
+  // ... rest unchanged
   analysisInProgress = true;
   lastAnalyzedJobId = effectiveJobId;
 
@@ -142,7 +155,6 @@ function sendToBackend(
     "at",
     data.company,
   );
-  // ... rest of function unchanged
 
   chrome.runtime.sendMessage(
     {
@@ -164,6 +176,7 @@ function sendToBackend(
           chrome.runtime.lastError.message,
         );
         lastAnalyzedJobId = "";
+        // If there's a bulk queue waiting, process the next one
         return;
       }
 
@@ -206,11 +219,18 @@ function saveAndDisplay(
   };
 
   chrome.storage.local.set(cachePayload, () => {
+    inflightJobIds.delete(effectiveJobId);
     console.log(
       "[JobScout] Score saved, updating badges for job:",
       effectiveJobId,
     );
     displayResult(result, data, effectiveJobId, currentUrl);
+
+    if (bulkModeActive && !completedJobIds.has(effectiveJobId)) {
+      completedJobIds.add(effectiveJobId);
+      bulkMarkComplete(effectiveJobId);
+      processBulkQueueNext();
+    }
   });
 }
 
@@ -353,6 +373,184 @@ function onUrlChange(newUrl: string): void {
   waitForContentThenAnalyze();
 }
 
+// ===== BULK SCORING =====
+// Queue-based: you open each card manually, extraction queues automatically,
+// background processor fires one at a time without blocking your browsing.
+
+interface BulkQueueItem {
+  jobId: string;
+  data: JobExtraction;
+  url: string;
+}
+
+let bulkQueue: BulkQueueItem[] = [];
+let bulkProcessing = false;
+let bulkTotal = 0;
+let bulkCompleted = 0;
+
+let bulkModeActive = false; // ADD THIS LINE near the other bulk variables
+
+function bulkHashTitle(title: string): string {
+  let hash = 0;
+  for (let i = 0; i < title.length; i++) {
+    hash = (hash << 5) - hash + title.charCodeAt(i);
+    hash |= 0;
+  }
+  return `hc_${Math.abs(hash).toString(16)}`;
+}
+
+function isInBulkQueue(jobId: string): boolean {
+  return bulkQueue.some((item) => item.jobId === jobId);
+}
+
+function addToBulkQueue(jobId: string, data: JobExtraction, url: string): void {
+  if (isInBulkQueue(jobId)) {
+    console.log("[JobScout Bulk] Already in queue:", jobId);
+    return;
+  }
+
+  // Check cache — skip if already scored
+  chrome.storage.local.get(`score_jobid_${jobId}`, (cached) => {
+    if (cached[`score_jobid_${jobId}`]) {
+      console.log("[JobScout Bulk] Already scored, not queuing:", jobId);
+      return;
+    }
+
+    bulkQueue.push({ jobId, data, url });
+    bulkTotal++;
+    console.log(
+      `[JobScout Bulk] Queued: ${data.jobTitle} (queue size: ${bulkQueue.length})`,
+    );
+    updateBulkProgress();
+
+    // Start processing if not already running
+    if (!bulkProcessing && !analysisInProgress) {
+      processBulkQueueNext();
+    }
+  });
+}
+
+function bulkMarkComplete(jobId: string): void {
+  const idx = bulkQueue.findIndex((item) => item.jobId === jobId);
+  if (idx !== -1) {
+    bulkQueue.splice(idx, 1);
+    bulkCompleted++;
+    console.log(
+      `[JobScout Bulk] Completed: ${jobId} (${bulkCompleted}/${bulkTotal})`,
+    );
+    updateBulkProgress();
+  }
+}
+
+function processBulkQueueNext(): void {
+  if (bulkProcessing || analysisInProgress) return;
+  if (bulkQueue.length === 0) {
+    if (bulkTotal > 0) {
+      console.log(`[JobScout Bulk] Queue empty — ${bulkCompleted} jobs scored`);
+      updateBulkProgress();
+    }
+    return;
+  }
+
+  const next = bulkQueue[0];
+  console.log(
+    `[JobScout Bulk] Processing next: ${next.data.jobTitle} (${bulkQueue.length} remaining)`,
+  );
+
+  chrome.storage.local.get(`score_jobid_${next.jobId}`, (cached) => {
+    if (cached[`score_jobid_${next.jobId}`]) {
+      console.log(
+        "[JobScout Bulk] Already scored since queuing, skipping:",
+        next.jobId,
+      );
+      bulkMarkComplete(next.jobId);
+      processBulkQueueNext();
+      return;
+    }
+
+    // Set analysisInProgress directly here before sendToBackend so nothing
+    // else can sneak in between the cache check and the API call
+    analysisInProgress = true;
+    lastAnalyzedJobId = next.jobId;
+    chrome.storage.local.set({ hc_pending_job_id: next.jobId });
+
+    console.log(
+      "[JobScout] Sending to background worker:",
+      next.data.jobTitle,
+      "at",
+      next.data.company,
+    );
+
+    chrome.runtime.sendMessage(
+      {
+        type: "ANALYZE_JOB",
+        payload: {
+          job_title: next.data.jobTitle,
+          company: next.data.company,
+          job_description: next.data.jobDescription,
+          url: next.url,
+          listed_salary: next.data.salary,
+        },
+      },
+      (response) => {
+        analysisInProgress = false;
+
+        if (chrome.runtime.lastError) {
+          console.error(
+            "[JobScout] Message error:",
+            chrome.runtime.lastError.message,
+          );
+          bulkMarkComplete(next.jobId);
+          processBulkQueueNext();
+          return;
+        }
+
+        if (!response.success) {
+          console.error("[JobScout] Backend error:", response.error);
+          bulkMarkComplete(next.jobId);
+          processBulkQueueNext();
+          return;
+        }
+
+        const result: AnalyzeResponse = response.data;
+        saveAndDisplay(result, next.data, next.jobId, next.url);
+      },
+    );
+  });
+}
+
+function updateBulkProgress(): void {
+  chrome.runtime.sendMessage({
+    type: "BULK_PROGRESS",
+    completed: bulkCompleted,
+    total: bulkTotal,
+    queued: bulkQueue.length,
+    running: bulkQueue.length > 0 || analysisInProgress,
+  });
+}
+
+function startBulkScoring(): void {
+  bulkModeActive = true;
+  chrome.storage.local.set({ hc_bulk_mode_active: true });
+  console.log(
+    "[JobScout Bulk] Bulk queue mode enabled — open cards to queue them",
+  );
+  updateBulkProgress();
+}
+
+function cancelBulkScoring(): void {
+  bulkQueue = [];
+  bulkProcessing = false;
+  bulkTotal = 0;
+  bulkCompleted = 0;
+  bulkModeActive = false;
+  chrome.storage.local.set({ hc_bulk_mode_active: false });
+  updateBulkProgress();
+  console.log("[JobScout Bulk] Queue cleared and bulk mode disabled");
+}
+
+// ===== HIRING CAFE MODAL WATCHER =====
+
 function initHiringCafeModalWatcher(): void {
   if (!isHiringCafePage(window.location.href)) return;
 
@@ -369,12 +567,7 @@ function initHiringCafeModalWatcher(): void {
     const title = titleEl?.innerText?.trim() ?? "";
     if (!title) return;
 
-    let hash = 0;
-    for (let i = 0; i < title.length; i++) {
-      hash = (hash << 5) - hash + title.charCodeAt(i);
-      hash |= 0;
-    }
-    const currentJobId = `hc_${Math.abs(hash).toString(16)}`;
+    const currentJobId = bulkHashTitle(title);
 
     if (currentJobId === lastModalJobId) return;
     lastModalJobId = currentJobId;
@@ -382,7 +575,41 @@ function initHiringCafeModalWatcher(): void {
     console.log("[JobScout] Hiring.cafe modal detected for:", title);
     analysisInProgress = false;
     lastAnalyzedJobId = "";
-    setTimeout(() => waitForContentThenAnalyze(currentJobId), 500);
+
+    setTimeout(() => {
+      const currentUrl = window.location.href;
+      const extractionResult = extractHiringCafe(currentUrl);
+
+      if (extractionResult.success && extractionResult.data) {
+        const data = extractionResult.data;
+        const jobId = currentJobId;
+
+        chrome.storage.local.get(`score_jobid_${jobId}`, (cached) => {
+          if (cached[`score_jobid_${jobId}`]) {
+            console.log("[JobScout] Cache hit for job:", jobId);
+            displayResult(
+              (cached[`score_jobid_${jobId}`] as { result: AnalyzeResponse })
+                .result,
+              data,
+              jobId,
+              currentUrl,
+            );
+          } else if (bulkModeActive) {
+            // Bulk mode — queue only, do NOT call waitForContentThenAnalyze
+            console.log("[JobScout] Bulk mode: queuing job:", data.jobTitle);
+            addToBulkQueue(jobId, data, currentUrl);
+            // Do not fall through to waitForContentThenAnalyze
+          } else {
+            // Normal single-job mode
+            waitForContentThenAnalyze(jobId);
+          }
+        });
+      } else {
+        if (!bulkModeActive) {
+          waitForContentThenAnalyze(currentJobId);
+        }
+      }
+    }, 500);
   });
 
   modalObserver.observe(document.body, { childList: true, subtree: true });
@@ -396,12 +623,6 @@ function initCardObserver(): void {
       ".job-card-container, .jobs-search-results__list-item, [data-job-id]",
     indeed: "[id^='sj_'], .job_seen_beacon, .resultContent",
     "hiring-cafe": "div.relative.bg-white.rounded-xl",
-  };
-
-  const processCard = (card: Element): void => {
-    if (card.hasAttribute("data-jobscout-processed")) return;
-    card.setAttribute("data-jobscout-processed", "true");
-    checkAndInjectFromStorage(card);
   };
 
   const scanCards = (): void => {
@@ -421,12 +642,7 @@ function initCardObserver(): void {
         const title = titleSpan.innerText.trim();
         if (!title || title.length < 3) return;
 
-        let hash = 0;
-        for (let i = 0; i < title.length; i++) {
-          hash = (hash << 5) - hash + title.charCodeAt(i);
-          hash |= 0;
-        }
-        const jobId = `hc_${Math.abs(hash).toString(16)}`;
+        const jobId = bulkHashTitle(title);
 
         card.setAttribute("data-jobscout-processed", "true");
         card.setAttribute("data-jobscout-hc-id", jobId);
@@ -500,6 +716,20 @@ chrome.runtime.onMessage.addListener((message) => {
     lastAnalyzedJobId = "";
     analysisInProgress = false;
     waitForContentThenAnalyze();
+  }
+
+  if (message.type === "START_BULK_SCORING") {
+    console.log("[JobScout] Bulk scoring status requested from popup");
+    startBulkScoring();
+  }
+
+  if (message.type === "CANCEL_BULK_SCORING") {
+    console.log("[JobScout] Bulk scoring cancelled from popup");
+    cancelBulkScoring();
+  }
+
+  if (message.type === "GET_BULK_STATUS") {
+    updateBulkProgress();
   }
 });
 

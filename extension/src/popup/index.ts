@@ -146,6 +146,21 @@ function renderError(message: string): void {
   }
 }
 
+function buildBulkBarHtml(tabUrl: string): string {
+  if (!tabUrl.includes("hiring.cafe")) return "";
+  return `
+    <div class="bulk-bar">
+      <button class="btn btn-bulk" id="btn-bulk-score">
+        ⚡ Enable Bulk Queue
+      </button>
+      <div class="bulk-progress" id="bulk-progress" style="display:none">
+        <span id="bulk-status">Ready — open cards to queue them</span>
+        <button class="btn btn-cancel-bulk" id="btn-cancel-bulk">✕ Clear</button>
+      </div>
+    </div>
+  `;
+}
+
 function renderScore(
   stored: StoredScore,
   tabUrl: string,
@@ -260,6 +275,7 @@ function renderScore(
         ${isApplied ? "✓ Applied" : "Mark Applied"}
       </button>
     </div>
+    ${buildBulkBarHtml(tabUrl)}
     ${buildSection("Direct matches", "#4ade80", result.direct_matches.length, directMatchesHtml, true)}
     ${buildSection("Transferable", "#facc15", result.transferable.length, transferableHtml)}
     ${buildSection("Gaps", "#f87171", result.gaps.length, gapsHtml)}
@@ -274,7 +290,116 @@ function renderScore(
   }
 }
 
+function attachBulkListeners(tabId: number): void {
+  const bulkBtn = document.getElementById(
+    "btn-bulk-score",
+  ) as HTMLButtonElement | null;
+  const progressEl = document.getElementById("bulk-progress");
+  const statusEl = document.getElementById("bulk-status");
+  const cancelBulkBtn = document.getElementById("btn-cancel-bulk");
+
+  if (!bulkBtn) return;
+
+  let pollInterval: ReturnType<typeof setInterval> | null = null;
+  let progressListener: ((message: unknown) => void) | null = null;
+
+  const startPolling = () => {
+    if (pollInterval) return;
+    pollInterval = setInterval(() => {
+      chrome.tabs.sendMessage(tabId, { type: "GET_BULK_STATUS" });
+    }, 1000);
+  };
+
+  const stopPolling = () => {
+    if (pollInterval) {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+    if (progressListener) {
+      chrome.runtime.onMessage.removeListener(progressListener);
+      progressListener = null;
+    }
+  };
+
+  // Check if bulk mode is already active
+  chrome.tabs.sendMessage(tabId, { type: "GET_BULK_STATUS" });
+
+  progressListener = (message: unknown) => {
+    const msg = message as {
+      type: string;
+      completed: number;
+      total: number;
+      queued: number;
+      running: boolean;
+    };
+    if (msg.type !== "BULK_PROGRESS") return;
+
+    if (msg.total > 0 || msg.running) {
+      // Bulk mode is active — update UI
+      bulkBtn.textContent = "⚡ Bulk Queue Active";
+      bulkBtn.disabled = true;
+      bulkBtn.style.background = "#1e1b4b";
+      if (progressEl) progressEl.style.display = "flex";
+
+      if (msg.queued > 0) {
+        if (statusEl)
+          statusEl.textContent = `${msg.queued} queued · ${msg.completed} scored`;
+      } else if (msg.running) {
+        if (statusEl)
+          statusEl.textContent = `Analyzing... · ${msg.completed} scored`;
+      } else {
+        if (statusEl)
+          statusEl.textContent = `✓ Done — ${msg.completed} jobs scored`;
+        bulkBtn.textContent = "⚡ Enable Bulk Queue";
+        bulkBtn.disabled = false;
+        stopPolling();
+        setTimeout(() => {
+          if (progressEl) progressEl.style.display = "none";
+        }, 3000);
+      }
+    }
+  };
+
+  chrome.runtime.onMessage.addListener(progressListener);
+
+  bulkBtn.addEventListener("click", () => {
+    // Enable bulk queue mode in content script
+    chrome.tabs.sendMessage(tabId, { type: "START_BULK_SCORING" });
+
+    bulkBtn.textContent = "⚡ Bulk Queue Active";
+    bulkBtn.disabled = true;
+    bulkBtn.style.background = "#1e1b4b";
+
+    if (progressEl) progressEl.style.display = "flex";
+    if (statusEl) statusEl.textContent = "Open cards to queue them for scoring";
+
+    startPolling();
+  });
+
+  if (cancelBulkBtn) {
+    cancelBulkBtn.addEventListener("click", () => {
+      chrome.tabs.sendMessage(tabId, { type: "CANCEL_BULK_SCORING" });
+      stopPolling();
+
+      bulkBtn.textContent = "⚡ Enable Bulk Queue";
+      bulkBtn.disabled = false;
+      bulkBtn.style.background = "";
+
+      if (progressEl) progressEl.style.display = "none";
+      if (statusEl) statusEl.textContent = "Ready — open cards to queue them";
+    });
+  }
+}
+
 function attachActionListeners(tabUrl: string, jobId: string): void {
+  // Wire up bulk listeners if on hiring.cafe
+  if (tabUrl.includes("hiring.cafe")) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tab = tabs[0];
+      if (tab?.id) attachBulkListeners(tab.id);
+    });
+  }
+
   const reanalyzeBtn = document.getElementById("btn-reanalyze");
   if (reanalyzeBtn) {
     reanalyzeBtn.addEventListener("click", () => {
@@ -390,6 +515,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const checkHiringCafe = (attempt: number) => {
       chrome.storage.local.get(null, (allData) => {
         const pendingJobId = allData["hc_pending_job_id"] as string | null;
+        const bulkModeActive = allData["hc_bulk_mode_active"] as boolean | null;
 
         const hcEntries = Object.entries(allData)
           .filter(([key]) => key.startsWith("score_jobid_hc_"))
@@ -403,8 +529,16 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const analysisInProgress =
           pendingJobId && pendingJobId !== mostRecentKey;
 
-        if (analysisInProgress) {
-          // New job is being analyzed — show loading and keep polling
+        if (bulkModeActive) {
+          // Bulk mode — show most recent score if available, don't show loading for new modals
+          if (hcEntries.length > 0) {
+            const { key, stored } = hcEntries[0];
+            const hcJobId = key.replace("score_jobid_", "");
+            renderScore(stored, tab.url!, false, hcJobId);
+          } else {
+            renderError("Bulk queue active. Open job cards to score them.");
+          }
+        } else if (analysisInProgress) {
           renderLoading();
           if (attempt < 20) {
             setTimeout(() => checkHiringCafe(attempt + 1), 1000);
@@ -412,7 +546,6 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             renderError("Analysis timed out. Try reopening the job.");
           }
         } else if (hcEntries.length > 0) {
-          // Score ready — show it
           const { key, stored } = hcEntries[0];
           const hcJobId = key.replace("score_jobid_", "");
           renderScore(stored, tab.url!, false, hcJobId);
@@ -430,7 +563,6 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     return;
   }
 
-  // LinkedIn and Indeed — look up by URL-based job ID
   if (!urlJobId) {
     renderLoading();
     return;
@@ -448,7 +580,6 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       return;
     }
 
-    // Fallback: try fetching from backend by job ID
     chrome.runtime.sendMessage(
       { type: "GET_SCORE_FROM_BACKEND", jobId: urlJobId },
       (response) => {
