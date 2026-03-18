@@ -226,6 +226,44 @@ function displayResult(
     result.should_apply,
     result.one_line_verdict,
   );
+  // Update hiring.cafe card badge if present
+  if (detectSite(currentUrl) === "hiring-cafe") {
+    const card = document.querySelector<HTMLElement>(
+      `[data-jobscout-hc-id="${effectiveJobId}"]`,
+    );
+    if (card) {
+      const badgeTarget = card.querySelector<HTMLElement>("div.mt-1");
+      const existing = badgeTarget?.querySelector(
+        `[data-jobscout-badge="${effectiveJobId}"]`,
+      );
+      if (badgeTarget && !existing) {
+        const badge = document.createElement("span");
+        badge.setAttribute("data-jobscout-badge", effectiveJobId);
+        badge.style.cssText = `
+          display: inline-block;
+          font-size: 10px;
+          font-weight: 700;
+          padding: 1px 5px;
+          border-radius: 4px;
+          margin-left: 6px;
+          vertical-align: middle;
+          background: ${result.fit_score >= 80 ? "#052e16" : result.fit_score >= 60 ? "#1c1917" : result.fit_score >= 40 ? "#1c0a00" : "#2d1515"};
+          color: ${result.fit_score >= 80 ? "#4ade80" : result.fit_score >= 60 ? "#facc15" : result.fit_score >= 40 ? "#fb923c" : "#f87171"};
+          border: 1px solid ${result.fit_score >= 80 ? "#4ade80" : result.fit_score >= 60 ? "#facc15" : result.fit_score >= 40 ? "#fb923c" : "#f87171"};
+          cursor: default;
+        `;
+        badge.textContent = `${result.fit_score}`;
+        badge.title = result.one_line_verdict;
+        badgeTarget.appendChild(badge);
+        console.log(
+          "[JobScout Badge] Injected HC card badge post-analysis:",
+          effectiveJobId,
+          "→",
+          result.fit_score,
+        );
+      }
+    }
+  }
   addJobToOverlay({
     jobId: effectiveJobId,
     jobTitle: data.jobTitle,
@@ -357,7 +395,7 @@ function initCardObserver(): void {
     linkedin:
       ".job-card-container, .jobs-search-results__list-item, [data-job-id]",
     indeed: "[id^='sj_'], .job_seen_beacon, .resultContent",
-    "hiring-cafe": "[class*='job-card'], [class*='jobCard'], [class*='result']",
+    "hiring-cafe": "div.relative.bg-white.rounded-xl",
   };
 
   const processCard = (card: Element): void => {
@@ -368,10 +406,72 @@ function initCardObserver(): void {
 
   const scanCards = (): void => {
     const site = detectSite(window.location.href);
-    if (!site || site === "hiring-cafe") return;
+    if (!site) return;
 
     const selector = cardSelectors[site];
-    document.querySelectorAll(selector).forEach(processCard);
+    document.querySelectorAll(selector).forEach((card) => {
+      if (card.hasAttribute("data-jobscout-processed")) return;
+
+      if (site === "hiring-cafe") {
+        const titleSpan = card.querySelector<HTMLElement>(
+          "span[class*='font-bold'][class*='line-clamp']",
+        );
+        if (!titleSpan) return;
+
+        const title = titleSpan.innerText.trim();
+        if (!title || title.length < 3) return;
+
+        let hash = 0;
+        for (let i = 0; i < title.length; i++) {
+          hash = (hash << 5) - hash + title.charCodeAt(i);
+          hash |= 0;
+        }
+        const jobId = `hc_${Math.abs(hash).toString(16)}`;
+
+        card.setAttribute("data-jobscout-processed", "true");
+        card.setAttribute("data-jobscout-hc-id", jobId);
+
+        const badgeTarget = titleSpan.closest("div.mt-1");
+        if (!badgeTarget) return;
+
+        const storageKey = `jobid_${jobId}`;
+        chrome.storage.local.get(storageKey, (data) => {
+          const stored = data[storageKey] as
+            | { score: number; shouldApply: boolean; verdict: string }
+            | undefined;
+          if (stored) {
+            const badge = document.createElement("span");
+            badge.setAttribute("data-jobscout-badge", jobId);
+            badge.style.cssText = `
+              display: inline-block;
+              font-size: 10px;
+              font-weight: 700;
+              padding: 1px 5px;
+              border-radius: 4px;
+              margin-left: 6px;
+              vertical-align: middle;
+              background: ${stored.score >= 80 ? "#052e16" : stored.score >= 60 ? "#1c1917" : stored.score >= 40 ? "#1c0a00" : "#2d1515"};
+              color: ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
+              border: 1px solid ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
+              cursor: default;
+            `;
+            badge.textContent = `${stored.score}`;
+            badge.title = stored.verdict;
+            badgeTarget.appendChild(badge);
+            console.log(
+              "[JobScout Badge] Injected HC card badge for:",
+              title.substring(0, 30),
+              "→",
+              stored.score,
+            );
+          }
+        });
+        return;
+      }
+
+      card.setAttribute("data-jobscout-processed", "true");
+      checkAndInjectFromStorage(card);
+    });
   };
 
   const cardObserver = new MutationObserver(() => scanCards());
