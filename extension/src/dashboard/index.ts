@@ -38,6 +38,14 @@ interface StoredScore {
   url?: string;
 }
 
+type AppStatus =
+  | "applied"
+  | "phone_screen"
+  | "interviewed"
+  | "offer"
+  | "rejected"
+  | null;
+
 interface DashboardJob {
   jobId: string;
   jobTitle: string;
@@ -49,10 +57,50 @@ interface DashboardJob {
   salaryEstimate: SalaryEstimate | null;
   site: string;
   timestamp: number;
-  applied: boolean;
+  status: AppStatus;
   result: AnalyzeResponse;
   url: string | null;
 }
+
+const STATUS_CYCLE: AppStatus[] = [
+  "applied",
+  "phone_screen",
+  "interviewed",
+  "offer",
+  "rejected",
+  null,
+];
+
+const STATUS_CONFIG: Record<
+  string,
+  { label: string; bg: string; color: string; border: string }
+> = {
+  applied: {
+    label: "Applied",
+    bg: "#0c1a3a",
+    color: "#38bdf8",
+    border: "#1e3a5f",
+  },
+  phone_screen: {
+    label: "Phone Screen",
+    bg: "#1c1400",
+    color: "#facc15",
+    border: "#78350f",
+  },
+  interviewed: {
+    label: "Interviewed",
+    bg: "#1a0a2e",
+    color: "#a78bfa",
+    border: "#4c1d95",
+  },
+  offer: { label: "Offer", bg: "#052e16", color: "#4ade80", border: "#166534" },
+  rejected: {
+    label: "Rejected",
+    bg: "#2d1515",
+    color: "#f87171",
+    border: "#7f1d1d",
+  },
+};
 
 let allJobs: DashboardJob[] = [];
 let sortCol = "score";
@@ -111,6 +159,27 @@ function getSiteLabel(site: string): string {
   return site;
 }
 
+function renderStatusBadge(status: AppStatus): string {
+  if (!status) {
+    return `<span class="status-badge status-none" title="Click to mark as Applied">+ Track</span>`;
+  }
+  const cfg = STATUS_CONFIG[status];
+  return `<span class="status-badge" style="background:${cfg.bg};color:${cfg.color};border:1px solid ${cfg.border}" title="Click to advance status">${cfg.label}</span>`;
+}
+
+function cycleStatus(current: AppStatus): AppStatus {
+  const idx = STATUS_CYCLE.indexOf(current);
+  return STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+}
+
+function saveStatus(jobId: string, status: AppStatus): void {
+  if (status === null) {
+    chrome.storage.local.remove(`status_${jobId}`);
+  } else {
+    chrome.storage.local.set({ [`status_${jobId}`]: status });
+  }
+}
+
 function openAndHighlightHC(jobId: string, url: string): void {
   chrome.tabs.query({ url: "https://hiring.cafe/*" }, (tabs) => {
     if (tabs.length > 0 && tabs[0].id) {
@@ -118,7 +187,6 @@ function openAndHighlightHC(jobId: string, url: string): void {
       chrome.tabs.update(tabId, { active: true });
       chrome.windows.update(tabs[0].windowId!, { focused: true });
 
-      // Poll for card — may not be in DOM yet due to virtual scroll
       let attempts = 0;
       const maxAttempts = 20;
       const poll = setInterval(() => {
@@ -135,38 +203,36 @@ function openAndHighlightHC(jobId: string, url: string): void {
               clearInterval(poll);
             } else if (attempts >= maxAttempts) {
               clearInterval(poll);
-              // Card never appeared — navigate to stored URL
               chrome.tabs.update(tabId, { url }, () => {
                 chrome.tabs.onUpdated.addListener(
                   function listener(updatedId, info) {
                     if (updatedId === tabId && info.status === "complete") {
                       chrome.tabs.onUpdated.removeListener(listener);
-                      setTimeout(() => {
-                        chrome.tabs.sendMessage(tabId, {
-                          type: "HIGHLIGHT_HC_CARD",
-                          jobId,
-                        });
-                      }, 1500);
+                      setTimeout(
+                        () =>
+                          chrome.tabs.sendMessage(tabId, {
+                            type: "HIGHLIGHT_HC_CARD",
+                            jobId,
+                          }),
+                        1500,
+                      );
                     }
                   },
                 );
               });
             } else {
-              // Scroll down to trigger lazy load
               chrome.tabs.sendMessage(tabId, { type: "SCROLL_TO_LOAD" });
             }
           },
         );
       }, 500);
     } else {
-      // No hiring.cafe tab open — create one then poll same as scenario 1
       chrome.tabs.create({ url }, (tab) => {
         if (!tab.id) return;
         const tabId = tab.id;
         chrome.tabs.onUpdated.addListener(function listener(updatedId, info) {
           if (updatedId === tabId && info.status === "complete") {
             chrome.tabs.onUpdated.removeListener(listener);
-            // Wait for initial render then start polling
             setTimeout(() => {
               let attempts = 0;
               const maxAttempts = 20;
@@ -202,17 +268,27 @@ function openAndHighlightHC(jobId: string, url: string): void {
 
 function loadJobs(): void {
   chrome.storage.local.get(null, (data) => {
-    const appliedKeys = new Set(
-      Object.keys(data)
-        .filter((k) => k.startsWith("applied_"))
-        .map((k) => k.replace("applied_", "")),
-    );
+    // Migrate old applied_ keys to status_ keys
+    const migratePayload: Record<string, string> = {};
+    Object.keys(data).forEach((k) => {
+      if (k.startsWith("applied_") && data[k] === true) {
+        const jobId = k.replace("applied_", "");
+        if (!data[`status_${jobId}`]) {
+          migratePayload[`status_${jobId}`] = "applied";
+        }
+      }
+    });
+    if (Object.keys(migratePayload).length > 0) {
+      chrome.storage.local.set(migratePayload);
+      Object.assign(data, migratePayload);
+    }
 
     allJobs = Object.entries(data)
       .filter(([key]) => key.startsWith("score_jobid_"))
       .map(([key, val]) => {
         const stored = val as StoredScore;
         const jobId = key.replace("score_jobid_", "");
+        const status = (data[`status_${jobId}`] as AppStatus) ?? null;
         return {
           jobId,
           jobTitle: stored.jobTitle ?? "Unknown",
@@ -224,7 +300,7 @@ function loadJobs(): void {
           salaryEstimate: stored.result?.salary_estimate ?? null,
           site: detectSite(jobId),
           timestamp: stored.timestamp ?? 0,
-          applied: appliedKeys.has(jobId),
+          status,
           result: stored.result,
           url: stored.url ?? null,
         };
@@ -243,17 +319,36 @@ function renderStats(): void {
 
   const total = allJobs.length;
   const shouldApply = allJobs.filter((j) => j.shouldApply).length;
-  const applied = allJobs.filter((j) => j.applied).length;
   const avgScore =
     total > 0
       ? Math.round(allJobs.reduce((s, j) => s + j.score, 0) / total)
       : 0;
   const high = allJobs.filter((j) => j.score >= 70).length;
 
+  const applied = allJobs.filter((j) => j.status === "applied").length;
+  const phoneScreen = allJobs.filter((j) => j.status === "phone_screen").length;
+  const interviewed = allJobs.filter((j) => j.status === "interviewed").length;
+  const offer = allJobs.filter((j) => j.status === "offer").length;
+  const rejected = allJobs.filter((j) => j.status === "rejected").length;
+  const totalApplied = applied + phoneScreen + interviewed + offer + rejected;
+
+  const responseRate =
+    totalApplied > 0
+      ? Math.round(
+          ((phoneScreen + interviewed + offer + rejected) / totalApplied) * 100,
+        )
+      : 0;
+  const offerRate =
+    totalApplied > 0 ? Math.round((offer / totalApplied) * 100) : 0;
+
+  // Funnel bar widths relative to totalApplied
+  const funnelMax = totalApplied || 1;
+  const w = (n: number) => Math.round((n / funnelMax) * 100);
+
   bar.innerHTML = `
     <div class="stat">
       <span class="stat-value">${total}</span>
-      <span class="stat-label">Jobs Scored</span>
+      <span class="stat-label">Scored</span>
     </div>
     <div class="stat">
       <span class="stat-value green">${shouldApply}</span>
@@ -267,10 +362,64 @@ function renderStats(): void {
       <span class="stat-value">${avgScore}</span>
       <span class="stat-label">Avg Score</span>
     </div>
+    <div style="width:1px;background:#1e293b;margin:0 8px;flex-shrink:0"></div>
     <div class="stat">
-      <span class="stat-value" style="color:#38bdf8">${applied}</span>
+      <span class="stat-value" style="color:#38bdf8">${totalApplied}</span>
       <span class="stat-label">Applied</span>
     </div>
+    <div class="stat">
+      <span class="stat-value" style="color:#facc15">${phoneScreen}</span>
+      <span class="stat-label">Phone Screen</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value" style="color:#a78bfa">${interviewed}</span>
+      <span class="stat-label">Interviewed</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value" style="color:#4ade80">${offer}</span>
+      <span class="stat-label">Offers</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value" style="color:#f87171">${rejected}</span>
+      <span class="stat-label">Rejected</span>
+    </div>
+    <div style="width:1px;background:#1e293b;margin:0 8px;flex-shrink:0"></div>
+    <div class="stat">
+      <span class="stat-value" style="color:#94a3b8">${responseRate}%</span>
+      <span class="stat-label">Response Rate</span>
+    </div>
+    <div class="stat">
+      <span class="stat-value" style="color:#4ade80">${offerRate}%</span>
+      <span class="stat-label">Offer Rate</span>
+    </div>
+    ${
+      totalApplied > 0
+        ? `
+    <div style="flex:1;min-width:120px;display:flex;flex-direction:column;gap:4px;justify-content:center">
+      <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Funnel</div>
+      <div style="display:flex;flex-direction:column;gap:3px">
+        ${[
+          { label: "Applied", n: totalApplied, color: "#38bdf8" },
+          { label: "Screen", n: phoneScreen, color: "#facc15" },
+          { label: "Interview", n: interviewed, color: "#a78bfa" },
+          { label: "Offer", n: offer, color: "#4ade80" },
+        ]
+          .map(
+            (s) => `
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:56px;font-size:9px;color:#475569;text-align:right;flex-shrink:0">${s.label}</div>
+            <div style="flex:1;height:5px;background:#1e293b;border-radius:3px;overflow:hidden">
+              <div style="width:${w(s.n)}%;height:100%;background:${s.color};border-radius:3px;transition:width 0.3s"></div>
+            </div>
+            <div style="font-size:9px;color:${s.color};width:16px;flex-shrink:0">${s.n}</div>
+          </div>
+        `,
+          )
+          .join("")}
+      </div>
+    </div>`
+        : ""
+    }
   `;
 }
 
@@ -288,8 +437,8 @@ function getFilteredJobs(): DashboardJob[] {
   const applyFilter =
     (document.getElementById("filter-apply") as HTMLSelectElement)?.value ??
     "all";
-  const appliedFilter =
-    (document.getElementById("filter-applied") as HTMLSelectElement)?.value ??
+  const statusFilter =
+    (document.getElementById("filter-status") as HTMLSelectElement)?.value ??
     "all";
 
   return allJobs
@@ -304,8 +453,13 @@ function getFilteredJobs(): DashboardJob[] {
       if (j.score < minScore) return false;
       if (applyFilter === "yes" && !j.shouldApply) return false;
       if (applyFilter === "no" && j.shouldApply) return false;
-      if (appliedFilter === "yes" && !j.applied) return false;
-      if (appliedFilter === "no" && j.applied) return false;
+      if (statusFilter === "none" && j.status !== null) return false;
+      if (
+        statusFilter !== "all" &&
+        statusFilter !== "none" &&
+        j.status !== statusFilter
+      )
+        return false;
       return true;
     })
     .sort((a, b) => {
@@ -329,9 +483,9 @@ function getFilteredJobs(): DashboardJob[] {
       } else if (sortCol === "apply") {
         av = a.shouldApply ? 1 : 0;
         bv = b.shouldApply ? 1 : 0;
-      } else if (sortCol === "applied") {
-        av = a.applied ? 1 : 0;
-        bv = b.applied ? 1 : 0;
+      } else if (sortCol === "status") {
+        av = a.status ?? "";
+        bv = b.status ?? "";
       }
 
       if (typeof av === "string" && typeof bv === "string") {
@@ -395,7 +549,9 @@ function renderTable(): void {
       <td><span class="${getSiteBadgeClass(job.site)}">${getSiteLabel(job.site)}</span></td>
       <td><span class="apply-pill ${job.shouldApply ? "yes" : "no"}">${job.shouldApply ? "✓ Apply" : "✗ Skip"}</span></td>
       <td style="text-align:center">
-        <input type="checkbox" class="applied-check" data-job-id="${job.jobId}" ${job.applied ? "checked" : ""} title="Mark as applied" />
+        <span class="status-cycle-btn" data-job-id="${job.jobId}" style="cursor:pointer">
+          ${renderStatusBadge(job.status)}
+        </span>
       </td>
       <td class="date-cell">${formatDate(job.timestamp)}</td>
     `;
@@ -410,21 +566,15 @@ function renderTable(): void {
           <div class="detail-grid">
             <div class="detail-section green">
               <h4>✓ Direct Matches (${job.result.direct_matches?.length ?? 0})</h4>
-              <ul>
-                ${(job.result.direct_matches ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}
-              </ul>
+              <ul>${(job.result.direct_matches ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}</ul>
             </div>
             <div class="detail-section">
               <h4>↔ Transferable (${job.result.transferable?.length ?? 0})</h4>
-              <ul>
-                ${(job.result.transferable ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}
-              </ul>
+              <ul>${(job.result.transferable ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}</ul>
             </div>
             <div class="detail-section red">
               <h4>✗ Gaps (${job.result.gaps?.length ?? 0})</h4>
-              <ul>
-                ${(job.result.gaps ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}
-              </ul>
+              <ul>${(job.result.gaps ?? []).map((m) => `<li>${m.item} — ${m.detail}</li>`).join("") || "<li>None</li>"}</ul>
             </div>
           </div>
           ${
@@ -461,7 +611,7 @@ function renderTable(): void {
     }
   });
 
-  // Expand/collapse listeners
+  // Expand/collapse
   tbody.querySelectorAll(".expand-btn").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -471,27 +621,21 @@ function renderTable(): void {
     });
   });
 
-  // Applied checkbox listeners
-  tbody.querySelectorAll(".applied-check").forEach((cb) => {
-    cb.addEventListener("change", (e) => {
-      const checkbox = e.target as HTMLInputElement;
-      const jobId = checkbox.getAttribute("data-job-id")!;
-      const isChecked = checkbox.checked;
-
-      if (isChecked) {
-        chrome.storage.local.set({ [`applied_${jobId}`]: true });
-        chrome.runtime.sendMessage({ type: "MARK_APPLIED", jobId });
-      } else {
-        chrome.storage.local.remove(`applied_${jobId}`);
-      }
-
+  // Status cycle click
+  tbody.querySelectorAll(".status-cycle-btn").forEach((el) => {
+    el.addEventListener("click", () => {
+      const jobId = (el as HTMLElement).getAttribute("data-job-id")!;
       const job = allJobs.find((j) => j.jobId === jobId);
-      if (job) job.applied = isChecked;
+      if (!job) return;
+      const nextStatus = cycleStatus(job.status);
+      job.status = nextStatus;
+      saveStatus(jobId, nextStatus);
+      el.innerHTML = renderStatusBadge(nextStatus);
       renderStats();
     });
   });
 
-  // Intercept hiring.cafe links for smart highlight
+  // HC link intercept
   tbody
     .querySelectorAll<HTMLAnchorElement>(".job-title-link")
     .forEach((link) => {
@@ -503,7 +647,6 @@ function renderTable(): void {
           const url = link.getAttribute("data-url")!;
           openAndHighlightHC(jobId, url);
         }
-        // LinkedIn/Indeed open normally via href
       });
     });
 }
@@ -528,7 +671,7 @@ function exportCSV(): void {
     "Salary",
     "Site",
     "Recommend",
-    "Applied",
+    "Status",
     "Verdict",
     "Analyzed",
     "URL",
@@ -540,7 +683,7 @@ function exportCSV(): void {
     `"${formatSalary(j)}"`,
     getSiteLabel(j.site),
     j.shouldApply ? "Apply" : "Skip",
-    j.applied ? "Yes" : "No",
+    j.status ? STATUS_CONFIG[j.status].label : "Not Tracked",
     `"${j.verdict.replace(/"/g, '""')}"`,
     new Date(j.timestamp).toLocaleDateString(),
     j.url ? `"${j.url}"` : "",
@@ -576,7 +719,7 @@ document.getElementById("filter-apply")?.addEventListener("change", () => {
   renderTable();
   updateCount();
 });
-document.getElementById("filter-applied")?.addEventListener("change", () => {
+document.getElementById("filter-status")?.addEventListener("change", () => {
   renderTable();
   updateCount();
 });
@@ -619,6 +762,7 @@ document.querySelectorAll("thead th[data-col]").forEach((th) => {
   });
 });
 
+// Tab switching
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const tab = (btn as HTMLElement).getAttribute("data-tab")!;
@@ -638,7 +782,6 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   });
 });
 
-// Render whichever tab is active on load
 const activeTab = document
   .querySelector(".tab-btn.active")
   ?.getAttribute("data-tab");
@@ -663,13 +806,12 @@ function renderHiddenJobs(): void {
       return;
     }
 
-    // Get score entries to match titles
     const jobIds = hiddenKeys.map((k) => k.replace("user_dimmed_", ""));
     const scoreKeys = jobIds.map((id) => `score_jobid_${id}`);
 
     chrome.storage.local.get(scoreKeys, (scores) => {
       container.innerHTML = "";
-      jobIds.forEach((jobId, i) => {
+      jobIds.forEach((jobId) => {
         const scoreEntry = scores[`score_jobid_${jobId}`] as
           | { jobTitle?: string; company?: string }
           | undefined;
@@ -742,9 +884,13 @@ function renderLearnedKeywords(): void {
           <div class="filter-row-info">
             <div class="filter-row-title">
               <span class="kw-tag">${ng}</span>
-              ${isActive ? `<span style="margin-left:8px;font-size:10px;color:#f87171">● auto-dimming</span>` : `<span style="margin-left:8px;font-size:10px;color:#475569">building signal</span>`}
+              ${
+                isActive
+                  ? `<span style="margin-left:8px;font-size:10px;color:#f87171">● auto-dimming</span>`
+                  : `<span style="margin-left:8px;font-size:10px;color:#475569">building signal</span>`
+              }
             </div>
-            <div class="filter-row-meta">${hideCount} hides · ${showCount} shows · ${pct}% dim confidence</div>
+            <div class="filter-row-meta">${hideCount} hides · ${showCount} shows · ${pct}% confidence</div>
           </div>
           <div class="filter-row-actions">
             <div class="confidence-bar-wrap">
@@ -770,5 +916,6 @@ function renderLearnedKeywords(): void {
     });
   });
 }
+
 // Load data
 loadJobs();

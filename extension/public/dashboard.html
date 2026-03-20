@@ -540,6 +540,25 @@
         border: 1px solid #7f1d1d;
         font-family: monospace;
       }
+
+      .status-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: opacity 0.15s;
+      }
+      .status-badge:hover {
+        opacity: 0.8;
+      }
+      .status-none {
+        background: #1e293b;
+        color: #475569;
+        border: 1px dashed #334155;
+      }
     </style>
   </head>
   <body>
@@ -608,6 +627,18 @@
             <option value="no">Not applied</option>
           </select>
         </div>
+        <div class="control-group">
+          <span class="control-label">Status</span>
+          <select id="filter-status">
+            <option value="all">All</option>
+            <option value="none">Not Tracked</option>
+            <option value="applied">Applied</option>
+            <option value="phone_screen">Phone Screen</option>
+            <option value="interviewed">Interviewed</option>
+            <option value="offer">Offer</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -621,7 +652,7 @@
               <th data-col="salary">Salary</th>
               <th data-col="site">Site</th>
               <th data-col="apply">Rec.</th>
-              <th data-col="applied">Applied</th>
+              <th data-col="status">Status</th>
               <th data-col="date">Analyzed</th>
             </tr>
           </thead>
