@@ -313,6 +313,42 @@ function loadJobs(): void {
   });
 }
 
+function applyStatFilter(action: string): void {
+  const searchEl = document.getElementById("search") as HTMLInputElement | null;
+  const siteEl = document.getElementById("filter-site") as HTMLSelectElement | null;
+  const scoreEl = document.getElementById("filter-score") as HTMLInputElement | null;
+  const scoreValEl = document.getElementById("score-val");
+  const applyEl = document.getElementById("filter-apply") as HTMLSelectElement | null;
+  const statusEl = document.getElementById("filter-status") as HTMLSelectElement | null;
+
+  // Determine current active action so clicking again toggles off
+  const currentApply = applyEl?.value ?? "all";
+  const currentStatus = statusEl?.value ?? "all";
+  const currentMinScore = parseInt(scoreEl?.value ?? "0");
+  let currentAction: string | null = null;
+  if (currentApply === "yes") currentAction = "apply:yes";
+  else if (currentMinScore >= 70) currentAction = "score:70";
+  else if (currentStatus !== "all") currentAction = `status:${currentStatus}`;
+
+  // Reset all filters
+  if (searchEl) searchEl.value = "";
+  if (siteEl) siteEl.value = "all";
+  if (scoreEl) { scoreEl.value = "0"; if (scoreValEl) scoreValEl.textContent = "0+"; }
+  if (applyEl) applyEl.value = "all";
+  if (statusEl) statusEl.value = "all";
+
+  // Apply new filter only if it's different from the current one (toggle off if same)
+  if (action !== "all" && action !== currentAction) {
+    if (action === "apply:yes" && applyEl) applyEl.value = "yes";
+    else if (action === "score:70" && scoreEl) { scoreEl.value = "70"; if (scoreValEl) scoreValEl.textContent = "70+"; }
+    else if (action.startsWith("status:") && statusEl) statusEl.value = action.replace("status:", "");
+  }
+
+  renderTable();
+  updateCount();
+  renderStats();
+}
+
 function renderStats(): void {
   const bar = document.getElementById("stats-bar");
   if (!bar) return;
@@ -341,68 +377,65 @@ function renderStats(): void {
   const offerRate =
     totalApplied > 0 ? Math.round((offer / totalApplied) * 100) : 0;
 
+  // Detect active filter for highlight
+  const currentApply = (document.getElementById("filter-apply") as HTMLSelectElement | null)?.value ?? "all";
+  const currentStatus = (document.getElementById("filter-status") as HTMLSelectElement | null)?.value ?? "all";
+  const currentMinScore = parseInt((document.getElementById("filter-score") as HTMLInputElement | null)?.value ?? "0");
+  let activeAction: string | null = null;
+  if (currentApply === "yes") activeAction = "apply:yes";
+  else if (currentMinScore >= 70) activeAction = "score:70";
+  else if (currentStatus !== "all") activeAction = `status:${currentStatus}`;
+
+  const stat = (
+    value: number | string,
+    label: string,
+    valueStyle: string,
+    action: string | null
+  ) => {
+    const isActive = action !== null && action === activeAction;
+    const clickAttrs = action
+      ? `data-action="${action}" style="cursor:pointer"`
+      : "";
+    const activeStyle = isActive
+      ? `text-decoration:underline;text-underline-offset:3px;${valueStyle}`
+      : valueStyle;
+    return `
+      <div class="stat" ${clickAttrs}>
+        <span class="stat-value" style="${activeStyle}">${value}</span>
+        <span class="stat-label">${label}</span>
+      </div>`;
+  };
+
+  const divider = `<div style="width:1px;background:#1e293b;margin:0 8px;flex-shrink:0"></div>`;
+
   // Funnel bar widths relative to totalApplied
   const funnelMax = totalApplied || 1;
   const w = (n: number) => Math.round((n / funnelMax) * 100);
 
-  bar.innerHTML = `
-    <div class="stat">
-      <span class="stat-value">${total}</span>
-      <span class="stat-label">Scored</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value green">${shouldApply}</span>
-      <span class="stat-label">Apply Recs</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value yellow">${high}</span>
-      <span class="stat-label">Score ≥70</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value">${avgScore}</span>
-      <span class="stat-label">Avg Score</span>
-    </div>
-    <div style="width:1px;background:#1e293b;margin:0 8px;flex-shrink:0"></div>
-    <div class="stat">
-      <span class="stat-value" style="color:#38bdf8">${totalApplied}</span>
-      <span class="stat-label">Applied</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value" style="color:#facc15">${phoneScreen}</span>
-      <span class="stat-label">Phone Screen</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value" style="color:#a78bfa">${interviewed}</span>
-      <span class="stat-label">Interviewed</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value" style="color:#4ade80">${offer}</span>
-      <span class="stat-label">Offers</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value" style="color:#f87171">${rejected}</span>
-      <span class="stat-label">Rejected</span>
-    </div>
-    <div style="width:1px;background:#1e293b;margin:0 8px;flex-shrink:0"></div>
-    <div class="stat">
-      <span class="stat-value" style="color:#94a3b8">${responseRate}%</span>
-      <span class="stat-label">Response Rate</span>
-    </div>
-    <div class="stat">
-      <span class="stat-value" style="color:#4ade80">${offerRate}%</span>
-      <span class="stat-label">Offer Rate</span>
-    </div>
-    ${
-      totalApplied > 0
-        ? `
+  bar.innerHTML =
+    stat(total,        "Scored",       "",                    "all") +
+    stat(shouldApply,  "Apply Recs",   "color:#4ade80",       "apply:yes") +
+    stat(high,         "Score ≥70",    "color:#facc15",       "score:70") +
+    stat(avgScore,     "Avg Score",    "",                    null) +
+    divider +
+    stat(totalApplied, "Applied",      "color:#38bdf8",       "status:any") +
+    stat(phoneScreen,  "Phone Screen", "color:#facc15",       "status:phone_screen") +
+    stat(interviewed,  "Interviewed",  "color:#a78bfa",       "status:interviewed") +
+    stat(offer,        "Offers",       "color:#4ade80",       "status:offer") +
+    stat(rejected,     "Rejected",     "color:#f87171",       "status:rejected") +
+    divider +
+    stat(`${responseRate}%`, "Response Rate", "color:#94a3b8", null) +
+    stat(`${offerRate}%`,    "Offer Rate",    "color:#4ade80",  null) +
+    (totalApplied > 0
+      ? `
     <div style="flex:1;min-width:120px;display:flex;flex-direction:column;gap:4px;justify-content:center">
       <div style="font-size:9px;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px">Funnel</div>
       <div style="display:flex;flex-direction:column;gap:3px">
         ${[
-          { label: "Applied", n: totalApplied, color: "#38bdf8" },
-          { label: "Screen", n: phoneScreen, color: "#facc15" },
-          { label: "Interview", n: interviewed, color: "#a78bfa" },
-          { label: "Offer", n: offer, color: "#4ade80" },
+          { label: "Applied",   n: totalApplied, color: "#38bdf8" },
+          { label: "Screen",    n: phoneScreen,  color: "#facc15" },
+          { label: "Interview", n: interviewed,  color: "#a78bfa" },
+          { label: "Offer",     n: offer,        color: "#4ade80" },
         ]
           .map(
             (s) => `
@@ -418,9 +451,14 @@ function renderStats(): void {
           .join("")}
       </div>
     </div>`
-        : ""
-    }
-  `;
+      : "");
+
+  // Wire click handlers for filterable stats
+  bar.querySelectorAll<HTMLElement>(".stat[data-action]").forEach((el) => {
+    el.addEventListener("click", () => {
+      applyStatFilter(el.getAttribute("data-action")!);
+    });
+  });
 }
 
 function getFilteredJobs(): DashboardJob[] {
@@ -454,9 +492,11 @@ function getFilteredJobs(): DashboardJob[] {
       if (applyFilter === "yes" && !j.shouldApply) return false;
       if (applyFilter === "no" && j.shouldApply) return false;
       if (statusFilter === "none" && j.status !== null) return false;
+      if (statusFilter === "any" && j.status === null) return false;
       if (
         statusFilter !== "all" &&
         statusFilter !== "none" &&
+        statusFilter !== "any" &&
         j.status !== statusFilter
       )
         return false;
