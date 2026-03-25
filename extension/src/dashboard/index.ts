@@ -58,6 +58,7 @@ interface DashboardJob {
   site: string;
   timestamp: number;
   status: AppStatus;
+  appliedDate: number | null;
   result: AnalyzeResponse;
   url: string | null;
 }
@@ -289,6 +290,7 @@ function loadJobs(): void {
         const stored = val as StoredScore;
         const jobId = key.replace("score_jobid_", "");
         const status = (data[`status_${jobId}`] as AppStatus) ?? null;
+        const appliedDate = (data[`applied_date_${jobId}`] as number) ?? null;
         return {
           jobId,
           jobTitle: stored.jobTitle ?? "Unknown",
@@ -301,6 +303,7 @@ function loadJobs(): void {
           site: detectSite(jobId),
           timestamp: stored.timestamp ?? 0,
           status,
+          appliedDate,
           result: stored.result,
           url: stored.url ?? null,
         };
@@ -336,6 +339,8 @@ function applyStatFilter(action: string): void {
   if (scoreEl) { scoreEl.value = "0"; if (scoreValEl) scoreValEl.textContent = "0+"; }
   if (applyEl) applyEl.value = "all";
   if (statusEl) statusEl.value = "all";
+  const appliedDateEl = document.getElementById("filter-applied-date") as HTMLSelectElement | null;
+  if (appliedDateEl) appliedDateEl.value = "all";
 
   // Apply new filter only if it's different from the current one (toggle off if same)
   if (action !== "all" && action !== currentAction) {
@@ -478,6 +483,12 @@ function getFilteredJobs(): DashboardJob[] {
   const statusFilter =
     (document.getElementById("filter-status") as HTMLSelectElement)?.value ??
     "all";
+  const appliedWithin =
+    (document.getElementById("filter-applied-date") as HTMLSelectElement)?.value ?? "all";
+
+  const appliedCutoff = appliedWithin !== "all"
+    ? Date.now() - parseInt(appliedWithin) * 24 * 60 * 60 * 1000
+    : null;
 
   return allJobs
     .filter((j) => {
@@ -500,6 +511,9 @@ function getFilteredJobs(): DashboardJob[] {
         j.status !== statusFilter
       )
         return false;
+      if (appliedCutoff !== null) {
+        if (!j.appliedDate || j.appliedDate < appliedCutoff) return false;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -517,6 +531,9 @@ function getFilteredJobs(): DashboardJob[] {
       } else if (sortCol === "date") {
         av = a.timestamp;
         bv = b.timestamp;
+      } else if (sortCol === "applied_date") {
+        av = a.appliedDate ?? 0;
+        bv = b.appliedDate ?? 0;
       } else if (sortCol === "site") {
         av = a.site;
         bv = b.site;
@@ -596,6 +613,7 @@ function renderTable(): void {
           ? `<button class="prep-btn" data-job-id="${job.jobId}" title="Open Interview Prep">📋 Prep</button>`
           : ""}
       </td>
+      <td class="date-cell">${job.appliedDate ? formatDate(job.appliedDate) : "<span style='color:#334155'>—</span>"}</td>
       <td class="date-cell">${formatDate(job.timestamp)}</td>
     `;
     tbody.appendChild(tr);
@@ -604,7 +622,7 @@ function renderTable(): void {
       const detailTr = document.createElement("tr");
       detailTr.className = "detail-row";
       detailTr.innerHTML = `
-        <td colspan="9">
+        <td colspan="10">
           <div style="font-size:12px;color:#94a3b8;font-style:italic;margin-bottom:12px">${job.verdict}</div>
           <div class="detail-grid">
             <div class="detail-section green">
@@ -671,9 +689,19 @@ function renderTable(): void {
       const job = allJobs.find((j) => j.jobId === jobId);
       if (!job) return;
       const nextStatus = cycleStatus(job.status);
+
+      // Record applied date when first tracked; clear when reset to null
+      if (job.status === null && nextStatus !== null && !job.appliedDate) {
+        job.appliedDate = Date.now();
+        chrome.storage.local.set({ [`applied_date_${jobId}`]: job.appliedDate });
+      } else if (nextStatus === null && job.appliedDate) {
+        job.appliedDate = null;
+        chrome.storage.local.remove(`applied_date_${jobId}`);
+      }
+
       job.status = nextStatus;
       saveStatus(jobId, nextStatus);
-      el.innerHTML = renderStatusBadge(nextStatus);
+      renderTable();
       renderStats();
     });
   });
@@ -726,6 +754,7 @@ function exportCSV(): void {
     "Site",
     "Recommend",
     "Status",
+    "Applied Date",
     "Verdict",
     "Analyzed",
     "URL",
@@ -738,6 +767,7 @@ function exportCSV(): void {
     getSiteLabel(j.site),
     j.shouldApply ? "Apply" : "Skip",
     j.status ? STATUS_CONFIG[j.status].label : "Not Tracked",
+    j.appliedDate ? new Date(j.appliedDate).toLocaleDateString() : "",
     `"${j.verdict.replace(/"/g, '""')}"`,
     new Date(j.timestamp).toLocaleDateString(),
     j.url ? `"${j.url}"` : "",
@@ -774,6 +804,10 @@ document.getElementById("filter-apply")?.addEventListener("change", () => {
   updateCount();
 });
 document.getElementById("filter-status")?.addEventListener("change", () => {
+  renderTable();
+  updateCount();
+});
+document.getElementById("filter-applied-date")?.addEventListener("change", () => {
   renderTable();
   updateCount();
 });

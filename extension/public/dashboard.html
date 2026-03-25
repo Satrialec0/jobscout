@@ -656,6 +656,15 @@
             <option value="rejected">Rejected</option>
           </select>
         </div>
+        <div class="control-group">
+          <span class="control-label">Applied within</span>
+          <select id="filter-applied-date">
+            <option value="all">All time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </div>
       </div>
 
       <div class="table-wrap">
@@ -670,6 +679,7 @@
               <th data-col="site">Site</th>
               <th data-col="apply">Rec.</th>
               <th data-col="status">Status</th>
+              <th data-col="applied_date">Applied</th>
               <th data-col="date">Analyzed</th>
             </tr>
           </thead>
