@@ -548,10 +548,13 @@ function renderTable(): void {
       <td class="salary-cell">${salary}</td>
       <td><span class="${getSiteBadgeClass(job.site)}">${getSiteLabel(job.site)}</span></td>
       <td><span class="apply-pill ${job.shouldApply ? "yes" : "no"}">${job.shouldApply ? "✓ Apply" : "✗ Skip"}</span></td>
-      <td style="text-align:center">
+      <td style="text-align:center;white-space:nowrap">
         <span class="status-cycle-btn" data-job-id="${job.jobId}" style="cursor:pointer">
           ${renderStatusBadge(job.status)}
         </span>
+        ${(job.status === "phone_screen" || job.status === "interviewed")
+          ? `<button class="prep-btn" data-job-id="${job.jobId}" title="Open Interview Prep">📋 Prep</button>`
+          : ""}
       </td>
       <td class="date-cell">${formatDate(job.timestamp)}</td>
     `;
@@ -632,6 +635,17 @@ function renderTable(): void {
       saveStatus(jobId, nextStatus);
       el.innerHTML = renderStatusBadge(nextStatus);
       renderStats();
+    });
+  });
+
+  // Interview prep button
+  tbody.querySelectorAll<HTMLButtonElement>(".prep-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const jobId = btn.getAttribute("data-job-id")!;
+      chrome.tabs.create({
+        url: chrome.runtime.getURL("interview.html") + "#" + jobId,
+      });
     });
   });
 

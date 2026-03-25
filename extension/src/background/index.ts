@@ -83,6 +83,45 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "GET_COMPANY_INFO") {
+    console.log("[JobScout BG] Getting company info for:", message.payload?.company);
+
+    fetch(`${BACKEND_URL}/company-info`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message.payload),
+    })
+      .then((r) => {
+        if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+        return r.json();
+      })
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+
+    return true;
+  }
+
+  if (message.type === "GENERATE_INTERVIEW_PREP") {
+    console.log(
+      "[JobScout BG] Generating interview prep for:",
+      message.payload?.job_title,
+    );
+
+    fetch(`${BACKEND_URL}/interview-prep`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(message.payload),
+    })
+      .then((r) => {
+        if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+        return r.json();
+      })
+      .then((data) => sendResponse({ success: true, data }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+
+    return true;
+  }
+
   if (message.type === "MARK_APPLIED") {
     console.log("[JobScout BG] Marking applied for job_id:", message.jobId);
 

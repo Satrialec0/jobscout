@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JobScout — Interview Prep</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+
+      /* ── Header ── */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 24px;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .btn-back {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        border-radius: 6px;
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        flex-shrink: 0;
+      }
+      .btn-back:hover { opacity: 0.8; }
+
+      .header-logo {
+        width: 22px;
+        height: 22px;
+        background: #38bdf8;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f172a;
+        flex-shrink: 0;
+      }
+
+      .header-job {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .header-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #f1f5f9;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .header-company {
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .score-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* ── Company Details Bar ── */
+      .company-details-bar {
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+      }
+
+      .company-details-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 24px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.1s;
+      }
+      .company-details-header:hover { background: #111827; }
+
+      .company-details-title {
+        font-size: 11px;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .company-details-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .company-details-chevron {
+        font-size: 9px;
+        color: #334155;
+        transition: transform 0.2s;
+      }
+      .company-details-chevron.open { transform: rotate(180deg); }
+
+      .company-details-body {
+        display: none;
+        padding: 12px 24px 14px;
+        border-top: 1px solid #1e293b;
+      }
+      .company-details-body.open { display: block; }
+
+      .company-details-grid {
+        display: flex;
+        gap: 32px;
+        flex-wrap: wrap;
+      }
+
+      .company-detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 100px;
+      }
+
+      .company-detail-label {
+        font-size: 9px;
+        font-weight: 700;
+        color: #334155;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .company-detail-value {
+        font-size: 13px;
+        color: #94a3b8;
+      }
+
+      .company-detail-value a {
+        color: #38bdf8;
+        text-decoration: none;
+      }
+      .company-detail-value a:hover { text-decoration: underline; }
+
+      .company-detail-value.empty { color: #334155; }
+
+      .btn-lookup {
+        background: #0c2240;
+        border: 1px solid #1e4d8c;
+        color: #38bdf8;
+        border-radius: 5px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        white-space: nowrap;
+      }
+      .btn-lookup:hover { opacity: 0.85; }
+      .btn-lookup:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      /* ── Tab bar ── */
+      .tab-bar {
+        display: flex;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+        padding: 0 24px;
+      }
+
+      .tab-btn {
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #475569;
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+      }
+      .tab-btn:hover { color: #94a3b8; }
+      .tab-btn.active {
+        color: #38bdf8;
+        border-bottom-color: #38bdf8;
+      }
+
+      .tab-panel { display: none; }
+      .tab-panel.active { display: block; }
+
+      /* ── Content ── */
+      .content {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      /* ── Section card ── */
+      .section-card {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid transparent;
+        transition: background 0.1s;
+      }
+      .section-header:hover { background: #1a2540; }
+      .section-header.open { border-bottom-color: #1e293b; }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .section-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .section-chevron {
+        font-size: 10px;
+        color: #475569;
+        transition: transform 0.2s;
+      }
+      .section-chevron.open { transform: rotate(180deg); }
+
+      .section-body {
+        padding: 14px 16px;
+        display: none;
+      }
+      .section-body.open { display: block; }
+
+      /* ── Textarea ── */
+      textarea {
+        width: 100%;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        line-height: 1.6;
+        padding: 10px 12px;
+        resize: vertical;
+        min-height: 80px;
+        transition: border-color 0.15s;
+      }
+      textarea:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      textarea::placeholder { color: #334155; }
+
+      /* ── Dynamic list ── */
+      .list-items {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .list-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .list-item input[type="text"] {
+        flex: 1;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        padding: 7px 10px;
+        transition: border-color 0.15s;
+      }
+      .list-item input[type="text"]:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      .list-item input[type="text"]::placeholder { color: #334155; }
+
+      .btn-remove {
+        background: none;
+        border: none;
+        color: #475569;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 6px 4px;
+        line-height: 1;
+        transition: color 0.15s;
+        flex-shrink: 0;
+      }
+      .btn-remove:hover { color: #f87171; }
+
+      .btn-add {
+        background: #1e293b;
+        border: 1px dashed #334155;
+        border-radius: 6px;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .btn-add:hover {
+        border-color: #475569;
+        color: #94a3b8;
+      }
+
+      /* ── AI Brief ── */
+      .ai-brief-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+
+      .btn-generate {
+        background: #0c2240;
+        border: 1px solid #1e4d8c;
+        color: #38bdf8;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-generate:hover { opacity: 0.85; }
+      .btn-generate:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .ai-brief-meta {
+        font-size: 11px;
+        color: #475569;
+      }
+
+      .ai-brief-content {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .ai-section-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+        margin-bottom: 6px;
+      }
+
+      .ai-list {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+      }
+
+      .ai-list li {
+        font-size: 13px;
+        color: #cbd5e1;
+        display: flex;
+        gap: 8px;
+        line-height: 1.5;
+      }
+
+      .ai-list li::before {
+        content: "•";
+        color: #475569;
+        flex-shrink: 0;
+      }
+
+      .question-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .question-item {
+        display: flex;
+        gap: 12px;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 12px 14px;
+      }
+
+      .question-number {
+        font-size: 11px;
+        font-weight: 700;
+        color: #334155;
+        width: 18px;
+        flex-shrink: 0;
+        padding-top: 1px;
+        text-align: right;
+      }
+
+      .question-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 7px;
+      }
+
+      .question-text {
+        font-size: 13px;
+        color: #e2e8f0;
+        line-height: 1.5;
+        font-weight: 500;
+      }
+
+      .talking-points {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding-left: 4px;
+        border-left: 2px solid #1e3a5f;
+      }
+
+      .talking-points li {
+        font-size: 12px;
+        color: #64748b;
+        line-height: 1.5;
+        display: flex;
+        gap: 6px;
+      }
+
+      .talking-points li::before {
+        content: "·";
+        color: #38bdf8;
+        flex-shrink: 0;
+        font-weight: 700;
+      }
+
+      .gap-strategy-item {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 10px 12px;
+        margin-bottom: 6px;
+      }
+
+      .gap-strategy-gap {
+        font-size: 11px;
+        font-weight: 600;
+        color: #f87171;
+        margin-bottom: 4px;
+      }
+
+      .gap-strategy-text {
+        font-size: 13px;
+        color: #94a3b8;
+        line-height: 1.5;
+      }
+
+      .loading-spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #1e293b;
+        border-top-color: #38bdf8;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        margin-right: 6px;
+        vertical-align: middle;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .error-msg {
+        font-size: 12px;
+        color: #f87171;
+        padding: 8px 12px;
+        background: #2d1515;
+        border: 1px solid #7f1d1d;
+        border-radius: 6px;
+      }
+
+      /* ── Impression select ── */
+      .impression-wrap {
+        display: flex;
+        gap: 8px;
+      }
+
+      .impression-opt {
+        flex: 1;
+        padding: 8px;
+        border-radius: 6px;
+        border: 1px solid #1e293b;
+        background: #0f172a;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.15s;
+      }
+      .impression-opt:hover { border-color: #334155; color: #94a3b8; }
+      .impression-opt.selected-positive {
+        background: #052e16;
+        color: #4ade80;
+        border-color: #166534;
+      }
+      .impression-opt.selected-neutral {
+        background: #1c1917;
+        color: #facc15;
+        border-color: #854d0e;
+      }
+      .impression-opt.selected-negative {
+        background: #2d1515;
+        color: #f87171;
+        border-color: #7f1d1d;
+      }
+
+      /* ── Date input ── */
+      input[type="date"] {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        padding: 7px 10px;
+        transition: border-color 0.15s;
+        color-scheme: dark;
+      }
+      input[type="date"]:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+
+      .field-label {
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 6px;
+        display: block;
+      }
+
+      .save-indicator {
+        font-size: 11px;
+        color: #475569;
+        position: fixed;
+        bottom: 16px;
+        right: 20px;
+        transition: opacity 0.3s;
+        opacity: 0;
+      }
+      .save-indicator.visible { opacity: 1; }
+
+      /* ── Empty state for AI brief ── */
+      .ai-empty {
+        font-size: 13px;
+        color: #334155;
+        font-style: italic;
+        padding: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header" id="header">
+      <button class="btn-back" id="btn-back">← Back</button>
+      <div class="header-logo">JS</div>
+      <div class="header-job">
+        <div class="header-title" id="header-title">Loading...</div>
+        <div class="header-company" id="header-company"></div>
+      </div>
+      <div class="score-pill" id="score-pill"></div>
+      <span class="status-badge" id="status-badge"></span>
+    </div>
+
+    <div class="company-details-bar">
+      <div class="company-details-header" id="hdr-company-details">
+        <div class="company-details-title">🏢 Company Details</div>
+        <div class="company-details-right">
+          <button class="btn-lookup" id="btn-lookup">Look up</button>
+          <span class="company-details-chevron" id="chv-company-details">▼</span>
+        </div>
+      </div>
+      <div class="company-details-body" id="body-company-details">
+        <div class="company-details-grid" id="company-details-grid"></div>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="pre">Pre-Interview</button>
+      <button class="tab-btn" data-tab="post">Post-Interview</button>
+    </div>
+
+    <!-- PRE-INTERVIEW TAB -->
+    <div class="tab-panel active" id="tab-pre">
+      <div class="content">
+
+        <!-- AI Prep Brief -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-ai">
+            <div class="section-title">
+              <div class="section-dot" style="background:#38bdf8"></div>
+              AI Prep Brief
+            </div>
+            <span class="section-chevron open" id="chv-ai">▼</span>
+          </div>
+          <div class="section-body open" id="body-ai">
+            <div class="ai-brief-actions">
+              <button class="btn-generate" id="btn-generate">✦ Generate Brief</button>
+              <span class="ai-brief-meta" id="ai-brief-meta"></span>
+            </div>
+            <div id="ai-brief-content">
+              <div class="ai-empty">Click "Generate Brief" to get Claude-powered interview prep based on this job's analysis.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Company Notes -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-notes">
+            <div class="section-title">
+              <div class="section-dot" style="background:#a78bfa"></div>
+              Company Notes
+            </div>
+            <span class="section-chevron open" id="chv-notes">▼</span>
+          </div>
+          <div class="section-body open" id="body-notes">
+            <textarea id="company-notes" placeholder="Research notes on the company, team, culture, recent news..." rows="5"></textarea>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- POST-INTERVIEW TAB -->
+    <div class="tab-panel" id="tab-post">
+      <div class="content">
+
+        <!-- Interview Date + Impression -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-meta">
+            <div class="section-title">
+              <div class="section-dot" style="background:#facc15"></div>
+              Interview Details
+            </div>
+            <span class="section-chevron open" id="chv-meta">▼</span>
+          </div>
+          <div class="section-body open" id="body-meta">
+            <div style="margin-bottom:16px">
+              <label class="field-label" for="interview-date">Interview Date</label>
+              <input type="date" id="interview-date" />
+            </div>
+            <div>
+              <label class="field-label">Overall Impression</label>
+              <div class="impression-wrap">
+                <div class="impression-opt" data-value="positive">👍 Positive</div>
+                <div class="impression-opt" data-value="neutral">😐 Neutral</div>
+                <div class="impression-opt" data-value="negative">👎 Negative</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Questions They Asked -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-qasked">
+            <div class="section-title">
+              <div class="section-dot" style="background:#fb923c"></div>
+              Questions They Asked You
+            </div>
+            <span class="section-chevron open" id="chv-qasked">▼</span>
+          </div>
+          <div class="section-body open" id="body-qasked">
+            <div class="list-items" id="list-qasked"></div>
+            <button class="btn-add" id="add-qasked">+ Add question</button>
+          </div>
+        </div>
+
+        <!-- Highlights -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-highlights">
+            <div class="section-title">
+              <div class="section-dot" style="background:#4ade80"></div>
+              Highlights
+            </div>
+            <span class="section-chevron open" id="chv-highlights">▼</span>
+          </div>
+          <div class="section-body open" id="body-highlights">
+            <div class="list-items" id="list-highlights"></div>
+            <button class="btn-add" id="add-highlights">+ Add highlight</button>
+          </div>
+        </div>
+
+        <!-- Lowlights -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-lowlights">
+            <div class="section-title">
+              <div class="section-dot" style="background:#f87171"></div>
+              Lowlights
+            </div>
+            <span class="section-chevron open" id="chv-lowlights">▼</span>
+          </div>
+          <div class="section-body open" id="body-lowlights">
+            <div class="list-items" id="list-lowlights"></div>
+            <button class="btn-add" id="add-lowlights">+ Add lowlight</button>
+          </div>
+        </div>
+
+        <!-- Follow-up Notes -->
+        <div class="section-card">
+          <div class="section-header open" id="hdr-followup">
+            <div class="section-title">
+              <div class="section-dot" style="background:#94a3b8"></div>
+              Follow-up Notes
+            </div>
+            <span class="section-chevron open" id="chv-followup">▼</span>
+          </div>
+          <div class="section-body open" id="body-followup">
+            <textarea id="followup-notes" placeholder="Thank you note sent? Next steps? Recruiter contact? Anything to remember for future applications..." rows="4"></textarea>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="save-indicator" id="save-indicator">Saved</div>
+
+    <script src="interview.js"></script>
+  </body>
+</html>

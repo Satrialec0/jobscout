@@ -2,6 +2,8 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem
+from app.schemas.interview_prep import InterviewPrepRequest, InterviewPrepResponse
+from app.schemas.company_info import CompanyInfoRequest, CompanyInfoResponse
 from app.services.claude import analyze_job
 from app.models.repository import get_cached_analysis, save_analysis
 from app.models.job import JobAnalysis
@@ -160,9 +162,36 @@ async def get_score_by_job_id(
         "green_flags": record.green_flags,
         "job_title": record.job_title,
         "company": record.company,
+        "job_description": record.job_description,
         "created_at": record.created_at.isoformat(),
         "salary_estimate": record.salary_estimate,
     }
+
+
+@router.post("/company-info", response_model=CompanyInfoResponse)
+async def get_company_info(request: CompanyInfoRequest) -> CompanyInfoResponse:
+    logger.info("Extracting company info for: %s", request.company)
+    from app.services.company_info import extract_company_info
+    try:
+        return extract_company_info(request)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error during company info extraction")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/interview-prep", response_model=InterviewPrepResponse)
+async def generate_interview_prep(request: InterviewPrepRequest) -> InterviewPrepResponse:
+    logger.info("Generating interview prep for: %s at %s", request.job_title, request.company)
+    from app.services.interview_prep import generate_prep_brief
+    try:
+        return generate_prep_brief(request)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error during interview prep generation")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/applied/{job_id}")

@@ -9,6 +9,7 @@ module.exports = {
     content: "./src/content/index.ts",
     popup: "./src/popup/index.ts",
     dashboard: "./src/dashboard/index.ts",
+    interview: "./src/interview/index.ts",
   },
   output: {
     path: path.resolve(__dirname, "dist"),

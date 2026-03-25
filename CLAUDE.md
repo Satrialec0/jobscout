@@ -22,11 +22,13 @@ pytest                                        # Run tests
 ```bash
 cd extension
 pnpm install
-pnpm build    # One-time build → dist/
+pnpm build    # Webpack build → dist/  (uses webpack.config.js)
 pnpm watch    # Watch mode for development
 ```
 
 Load the extension in Chrome: `chrome://extensions` → Developer mode → Load unpacked → `extension/dist/`
+
+After any source change, run `pnpm build` (or let `pnpm watch` rebuild), then click the reload icon on the extension card in `chrome://extensions`.
 
 ## Architecture
 
@@ -35,7 +37,7 @@ Load the extension in Chrome: `chrome://extensions` → Developer mode → Load 
 2. A site-specific extractor (`content/extractors/*.ts`) scrapes job data from the DOM
 3. Content script sends an `ANALYZE_JOB` message to `background/index.ts` (service worker)
 4. Background worker POSTs to `POST /api/v1/analyze` — bypassing site CSP restrictions
-5. Backend checks the PostgreSQL cache by URL; on miss, calls Claude API and stores result
+5. Backend checks the PostgreSQL cache by URL; on miss, calls Claude API (`claude-sonnet-4-20250514`) and stores result
 6. Score is returned to the popup (`popup/index.ts`) and an inline badge (`content/badge.ts`)
 
 ### Key Architectural Decisions
@@ -44,20 +46,45 @@ Load the extension in Chrome: `chrome://extensions` → Developer mode → Load 
 
 **URL-Based Caching:** Every analysis is cached in PostgreSQL by URL. Repeat visits are instant with no API cost. Hiring.cafe uses title+company as a fallback key due to dynamic URLs.
 
-**Score Persistence via `chrome.storage.local`:** The background worker caches scores per URL in extension storage so the popup renders immediately on re-open without re-fetching.
+**Score Persistence via `chrome.storage.local`:** The background worker caches scores per URL in extension storage so the popup renders immediately on re-open without re-fetching. The dashboard reads a *different* key format — see storage schema below.
 
-**Application Status Tracking:** `dashboard/index.ts` manages a 6-state lifecycle per job (applied → phone_screen → interviewed → offer → rejected + hidden) persisted in `chrome.storage.local`.
+**Application Status Tracking:** `dashboard/index.ts` manages a 6-state lifecycle per job (`applied → phone_screen → interviewed → offer → rejected → null`) persisted in `chrome.storage.local`. Status is cycled in-order on each click; clicking past `rejected` resets to null.
+
+### `chrome.storage.local` Key Schema
+
+| Key pattern | Written by | Value | Purpose |
+|---|---|---|---|
+| `score_<url>` | background | `StoredScore` object | Per-URL score cache for popup |
+| `score_jobid_<jobId>` | content | `StoredScore` object | Per-job score cache read by dashboard |
+| `status_<jobId>` | dashboard | `AppStatus` string | Application lifecycle status |
+| `applied_<jobId>` | background | `true` | Legacy applied flag (migrated to `status_` on load) |
+| `user_dimmed_<jobId>` | content | `true` | Manually hidden jobs |
+| `user_undimmed_<jobId>` | dashboard | `true` | Re-shown jobs (overrides auto-dim) |
+| `kw_hide_<ngram>` | content | count | Hide signal weight for keyword |
+| `kw_show_<ngram>` | content | count | Show signal weight for keyword |
+
+`StoredScore` shape: `{ result: AnalyzeResponse, jobTitle, company, timestamp, salary?, easyApply?, jobAge?, jobAgeIsOld?, url? }`
+
+### Webpack Bundle Entries
+
+Each entry in `webpack.config.js` maps to an independent JS bundle in `dist/`:
+- `background` → service worker
+- `content` → injected into job site pages
+- `popup` → toolbar popup
+- `dashboard` → full-page history/tracking tab
+
+HTML files are copied from `extension/public/` to `dist/` via `CopyPlugin`. To add a new page (e.g. `interview.html`), add the HTML to `public/`, register it in `web_accessible_resources` in `manifest.json`, and add its entry point to `webpack.config.js`.
 
 ### Backend Layout
 ```
 backend/app/
-  api/analyze.py        # Route handlers: POST /api/v1/analyze, GET /api/v1/history
-  services/claude.py    # Claude API client, prompt engineering, response parsing
+  api/analyze.py        # Route handlers: POST /analyze, GET /history, GET /score/:id, POST /applied/:id
+  services/claude.py    # Claude API client, system prompt, response parsing
   models/
-    job.py              # SQLAlchemy ORM model (JobAnalysis table)
+    job.py              # SQLAlchemy ORM: JobAnalysis table
     repository.py       # Cache read/write (get_cached_analysis, save_analysis)
-  schemas/analyze.py    # Pydantic request/response models
-  config.py             # Settings loaded from backend/.env
+  schemas/analyze.py    # Pydantic models: AnalyzeRequest, AnalyzeResponse, SalaryEstimate
+  config.py             # Settings from backend/.env
   database.py           # SQLAlchemy engine + session factory
 ```
 
@@ -66,12 +93,12 @@ backend/app/
 extension/src/
   background/index.ts   # Service worker — API relay, score caching, message dispatch
   content/
-    index.ts            # URL watcher, job detection, analysis orchestration
+    index.ts            # URL watcher, job detection, analysis orchestration, keyword learning
     badge.ts            # Inline score badge injected on job cards
     overlay.ts          # Overlay UI for detailed job info
-    extractors/         # Site-specific DOM scrapers (linkedin, indeed, hiring-cafe)
+    extractors/         # Site-specific DOM scrapers; each returns ExtractionResult (see extractors/types.ts)
   popup/index.ts        # Score ring UI + detailed breakdown
-  dashboard/index.ts    # Job history, status tracking, keyword learning
+  dashboard/index.ts    # Job history table, status tracking, keyword learning mgmt (2 tabs: History, Filters & Hidden)
 ```
 
 ### Database
@@ -84,6 +111,13 @@ PostgreSQL 16 via Docker. Single table: `job_analyses`. Schema managed with Alem
 
 ## Adding a New Job Site
 
-1. Create `extension/src/content/extractors/<site>.ts` implementing `ExtractionResult` (see `types.ts`)
+1. Create `extension/src/content/extractors/<site>.ts` implementing `ExtractionResult` (see `extractors/types.ts`)
 2. Register it in `content/index.ts` URL-matching logic
 3. Add the site's hostname to `host_permissions` in `extension/public/manifest.json`
+
+## Adding a New Dashboard Page
+
+1. Create `extension/public/<page>.html` and `extension/src/<page>/index.ts`
+2. Add the entry to `webpack.config.js` entries
+3. Register the HTML in `manifest.json` under `web_accessible_resources`
+4. Open the page via `chrome.tabs.create({ url: chrome.runtime.getURL("<page>.html") })`
