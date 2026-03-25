@@ -533,8 +533,30 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const checkHiringCafe = (attempt: number) => {
       chrome.storage.local.get(null, (allData) => {
         const pendingJobId = allData["hc_pending_job_id"] as string | null;
+        const activeJobId = allData["hc_active_job_id"] as string | null;
         const bulkModeActive = allData["hc_bulk_mode_active"] as boolean | null;
 
+        // If the active job has a cached score, show it directly
+        if (activeJobId && !bulkModeActive) {
+          const activeKey = `score_jobid_${activeJobId}`;
+          const activeStored = allData[activeKey] as StoredScore | undefined;
+          if (activeStored?.result) {
+            renderScore(activeStored, tab.url!, false, activeJobId);
+            return;
+          }
+          // Active job is known but not yet scored — check if analysis is running
+          if (pendingJobId === activeJobId) {
+            renderLoading();
+            if (attempt < 20) {
+              setTimeout(() => checkHiringCafe(attempt + 1), 1000);
+            } else {
+              renderError("Analysis timed out. Try reopening the job.");
+            }
+            return;
+          }
+        }
+
+        // Fallback: bulk mode or no active job — sort by most recently analyzed
         const hcEntries = Object.entries(allData)
           .filter(([key]) => key.startsWith("score_jobid_hc_"))
           .map(([key, val]) => ({ key, stored: val as StoredScore }))
@@ -543,12 +565,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             (a, b) => (b.stored.timestamp ?? 0) - (a.stored.timestamp ?? 0),
           );
 
-        const mostRecentKey = hcEntries[0]?.key?.replace("score_jobid_", "");
-        const analysisInProgress =
-          pendingJobId && pendingJobId !== mostRecentKey;
-
         if (bulkModeActive) {
-          // Bulk mode — show most recent score if available, don't show loading for new modals
           if (hcEntries.length > 0) {
             const { key, stored } = hcEntries[0];
             const hcJobId = key.replace("score_jobid_", "");
@@ -556,7 +573,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           } else {
             renderError("Bulk queue active. Open job cards to score them.");
           }
-        } else if (analysisInProgress) {
+        } else if (pendingJobId) {
           renderLoading();
           if (attempt < 20) {
             setTimeout(() => checkHiringCafe(attempt + 1), 1000);

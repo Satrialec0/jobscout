@@ -2,19 +2,17 @@ import { ExtractionResult } from "./types";
 
 console.log("[JobScout] Hiring.cafe extractor loaded");
 
-function extractJobId(modal: HTMLElement): string | null {
-  const companyLink = modal.querySelector<HTMLAnchorElement>(
-    "a[href*='company=']",
-  );
-  if (companyLink) {
-    const match = companyLink.href.match(/company=([^&]+)/);
-    if (match) {
-      return decodeURIComponent(match[1])
-        .replace(/[^a-zA-Z0-9]/g, "")
-        .substring(0, 24);
-    }
+function buildHCJobId(title: string, company: string): string {
+  const input = `${title.toLowerCase().trim()}|${company.toLowerCase().trim()}`;
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
   }
+  return `hc_${Math.abs(hash).toString(16)}`;
+}
 
+function extractJobId(modal: HTMLElement, company: string): string | null {
   const title = modal
     .querySelector<HTMLElement>(
       "h2.font-extrabold, h2[class*='font-extrabold'], h1",
@@ -22,12 +20,7 @@ function extractJobId(modal: HTMLElement): string | null {
     ?.innerText?.trim();
 
   if (title) {
-    let hash = 0;
-    for (let i = 0; i < title.length; i++) {
-      hash = (hash << 5) - hash + title.charCodeAt(i);
-      hash |= 0;
-    }
-    return `hc_${Math.abs(hash).toString(16)}`;
+    return buildHCJobId(title, company);
   }
 
   return null;
@@ -255,7 +248,7 @@ export function extractHiringCafe(url: string): ExtractionResult {
     };
   }
 
-  const jobId = extractJobId(modal);
+  const jobId = extractJobId(modal, company);
   if (!jobId) {
     return { success: false, reason: "Could not generate job ID" };
   }

@@ -903,8 +903,14 @@ function renderHiddenJobs(): void {
         const scoreEntry = scores[`score_jobid_${jobId}`] as
           | { jobTitle?: string; company?: string }
           | undefined;
-        const title = scoreEntry?.jobTitle ?? jobId;
-        const company = scoreEntry?.company ?? "Unknown company";
+        const dimmedEntry = data[`user_dimmed_${jobId}`];
+        const dimmedMeta =
+          dimmedEntry && typeof dimmedEntry === "object"
+            ? (dimmedEntry as { title?: string; company?: string })
+            : null;
+        const title = scoreEntry?.jobTitle ?? dimmedMeta?.title ?? jobId;
+        const company =
+          scoreEntry?.company ?? dimmedMeta?.company ?? "Unknown company";
 
         const row = document.createElement("div");
         row.className = "filter-row";

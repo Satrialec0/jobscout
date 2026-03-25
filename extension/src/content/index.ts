@@ -367,7 +367,13 @@ function injectVisibilityButton(card: Element, isDimmed: boolean): void {
     } else {
       // User wants to hide — dim, save override, record hide signal
       dimCard(card);
-      chrome.storage.local.set({ [`user_dimmed_${jobId}`]: true });
+      const companyEl = card.querySelector<HTMLElement>(
+        "span.font-bold:not([class*='line-clamp']), .job-card-list__entity-lockup__company-name, .companyName",
+      );
+      const cardCompany = companyEl?.innerText?.trim() ?? "";
+      chrome.storage.local.set({
+        [`user_dimmed_${jobId}`]: { title: cardTitle, company: cardCompany },
+      });
       chrome.storage.local.remove(`user_undimmed_${jobId}`);
       if (cardTitle) recordHideSignals(cardTitle);
       injectVisibilityButton(card, true);
@@ -847,10 +853,11 @@ let bulkModeActive = false; // ADD THIS LINE near the other bulk variables
 // Clear any stale bulk mode state from previous session
 chrome.storage.local.set({ hc_bulk_mode_active: false });
 
-function bulkHashTitle(title: string): string {
+function buildHCJobId(title: string, company: string): string {
+  const input = `${title.toLowerCase().trim()}|${company.toLowerCase().trim()}`;
   let hash = 0;
-  for (let i = 0; i < title.length; i++) {
-    hash = (hash << 5) - hash + title.charCodeAt(i);
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
     hash |= 0;
   }
   return `hc_${Math.abs(hash).toString(16)}`;
@@ -1024,12 +1031,21 @@ function initHiringCafeModalWatcher(): void {
     const title = titleEl?.innerText?.trim() ?? "";
     if (!title) return;
 
-    const currentJobId = bulkHashTitle(title);
+    // Extract company for a collision-resistant ID (title alone collides across companies)
+    const companyEl = modal.querySelector<HTMLElement>(
+      "span[class*='text-xl'][class*='font-semibold'], span[class*='font-semibold'][class*='text-gray'], span[class*='font-semibold']",
+    );
+    const company = companyEl?.innerText?.trim().replace(/^@\s*/, "") ?? "";
+
+    const currentJobId = buildHCJobId(title, company);
 
     if (currentJobId === lastModalJobId) return;
     lastModalJobId = currentJobId;
 
-    console.log("[JobScout] Hiring.cafe modal detected for:", title);
+    // Track the active job immediately so the popup can look it up even on cache hits
+    chrome.storage.local.set({ hc_active_job_id: currentJobId });
+
+    console.log("[JobScout] Hiring.cafe modal detected for:", title, "@ ", company);
     analysisInProgress = false;
     lastAnalyzedJobId = "";
 
@@ -1039,7 +1055,11 @@ function initHiringCafeModalWatcher(): void {
 
       if (extractionResult.success && extractionResult.data) {
         const data = extractionResult.data;
-        const jobId = currentJobId;
+        // Use title+company hash as the canonical job ID (consistent with card observer)
+        const jobId = buildHCJobId(data.jobTitle, data.company);
+
+        // Update active job ID to the accurate post-extraction ID
+        chrome.storage.local.set({ hc_active_job_id: jobId });
 
         chrome.storage.local.get(`score_jobid_${jobId}`, (cached) => {
           if (cached[`score_jobid_${jobId}`]) {
@@ -1099,7 +1119,13 @@ function initCardObserver(): void {
         const title = titleSpan.innerText.trim();
         if (!title || title.length < 3) return;
 
-        const jobId = bulkHashTitle(title);
+        // Include company to avoid collisions between same-title jobs at different companies
+        const companySpan = card.querySelector<HTMLElement>(
+          "span.font-bold:not([class*='line-clamp'])",
+        );
+        const company = companySpan?.innerText?.trim() ?? "";
+
+        const jobId = buildHCJobId(title, company);
 
         card.setAttribute("data-jobscout-processed", "true");
         card.setAttribute("data-jobscout-hc-id", jobId);
