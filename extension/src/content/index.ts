@@ -319,8 +319,6 @@ function injectVisibilityButton(card: Element, isDimmed: boolean): void {
     color: #64748b;
     border: 1px solid #334155;
     user-select: none;
-    position: relative;
-    z-index: 10000;
     pointer-events: all;
   `;
   btn.textContent = isDimmed ? "👁 Show" : "👁 Hide";
@@ -654,8 +652,9 @@ function displayResult(
       data.jobTitle,
     );
   }
-  // Update hiring.cafe card badge if present
+  // Update hiring.cafe modal panel + card badge
   if (detectSite(currentUrl) === "hiring-cafe") {
+    updateModalPanel(result);
     // Find card by current jobId OR update card that modal belongs to
     let card = document.querySelector<HTMLElement>(
       `[data-jobscout-hc-id="${effectiveJobId}"]`,
@@ -1016,6 +1015,96 @@ function cancelBulkScoring(): void {
 
 // ===== HIRING CAFE MODAL WATCHER =====
 
+function getScoreColor(score: number): { bg: string; text: string; border: string } {
+  if (score >= 80) return { bg: "#052e16", text: "#4ade80", border: "#4ade80" };
+  if (score >= 60) return { bg: "#1c1917", text: "#facc15", border: "#facc15" };
+  if (score >= 40) return { bg: "#1c0a00", text: "#fb923c", border: "#fb923c" };
+  return { bg: "#2d1515", text: "#f87171", border: "#f87171" };
+}
+
+function injectModalLoadingPanel(modal: HTMLElement): void {
+  modal.querySelectorAll("[data-jobscout-modal-panel]").forEach((el) => el.remove());
+
+  const panel = document.createElement("div");
+  panel.setAttribute("data-jobscout-modal-panel", "loading");
+  panel.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  `;
+  panel.innerHTML = `
+    <div style="
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 2px solid #334155; border-top-color: #64748b;
+      animation: jobscout-spin 0.8s linear infinite; flex-shrink: 0;
+    "></div>
+    <span style="color: #64748b; font-size: 13px;">Analyzing job fit…</span>
+    <style>
+      @keyframes jobscout-spin { to { transform: rotate(360deg); } }
+    </style>
+  `;
+  modal.insertBefore(panel, modal.firstChild);
+}
+
+function updateModalPanel(result: AnalyzeResponse): void {
+  const modal = document.querySelector<HTMLElement>(".chakra-modal__body");
+  if (!modal) return;
+  const panel = modal.querySelector<HTMLElement>("[data-jobscout-modal-panel]");
+  if (!panel) return;
+
+  const c = getScoreColor(result.fit_score);
+  const salaryText = result.salary_estimate
+    ? `Est. $${(result.salary_estimate.low / 1000).toFixed(0)}k–$${(result.salary_estimate.high / 1000).toFixed(0)}k/${result.salary_estimate.per === "year" ? "yr" : result.salary_estimate.per}`
+    : "";
+  const applyLabel = result.should_apply
+    ? `<span style="color:#4ade80; font-size:11px; font-weight:600;">✓ Apply</span>`
+    : `<span style="color:#f87171; font-size:11px; font-weight:600;">✗ Pass</span>`;
+
+  const greenPills = (result.green_flags ?? []).map(
+    (f) => `<span style="display:inline-block; background:#052e16; color:#4ade80; border:1px solid #166534; border-radius:4px; padding:1px 7px; font-size:11px; white-space:nowrap;">${f}</span>`
+  ).join("");
+  const redPills = (result.red_flags ?? []).map(
+    (f) => `<span style="display:inline-block; background:#2d1515; color:#f87171; border:1px solid #7f1d1d; border-radius:4px; padding:1px 7px; font-size:11px; white-space:nowrap;">${f}</span>`
+  ).join("");
+  const pills = greenPills + redPills;
+
+  panel.setAttribute("data-jobscout-modal-panel", "result");
+  panel.style.cssText = `
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: #0f172a;
+    border: 1px solid ${c.border}44;
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  `;
+  panel.innerHTML = `
+    <div style="
+      width: 40px; height: 40px; border-radius: 50%;
+      background: ${c.bg}; border: 2px solid ${c.border};
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: ${c.text}; flex-shrink: 0; margin-top: 2px;
+    ">${result.fit_score}</div>
+    <div style="flex: 1; min-width: 0;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+        ${applyLabel}
+        ${salaryText ? `<span style="color:#475569; font-size:11px;">${salaryText}</span>` : ""}
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+        ${pills || `<span style="color:#475569; font-size:11px;">No flags reported</span>`}
+      </div>
+    </div>
+  `;
+}
+
 function initHiringCafeModalWatcher(): void {
   if (!isHiringCafePage(window.location.href)) return;
 
@@ -1042,6 +1131,9 @@ function initHiringCafeModalWatcher(): void {
 
     if (currentJobId === lastModalJobId) return;
     lastModalJobId = currentJobId;
+
+    // Inject loading panel immediately so the user sees feedback right away
+    injectModalLoadingPanel(modal);
 
     // Track the active job immediately so the popup can look it up even on cache hits
     chrome.storage.local.set({ hc_active_job_id: currentJobId });
