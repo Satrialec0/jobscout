@@ -36,6 +36,7 @@ interface StoredScore {
   jobAge?: string;
   jobAgeIsOld?: boolean;
   url?: string;
+  dbId?: number;
 }
 
 type AppStatus =
@@ -61,6 +62,7 @@ interface DashboardJob {
   appliedDate: number | null;
   result: AnalyzeResponse;
   url: string | null;
+  dbId?: number;
 }
 
 const STATUS_CYCLE: AppStatus[] = [
@@ -173,11 +175,21 @@ function cycleStatus(current: AppStatus): AppStatus {
   return STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
 }
 
-function saveStatus(jobId: string, status: AppStatus): void {
+function saveStatus(jobId: string, status: AppStatus, dbId?: number, appliedDate?: number | null): void {
   if (status === null) {
     chrome.storage.local.remove(`status_${jobId}`);
   } else {
     chrome.storage.local.set({ [`status_${jobId}`]: status });
+  }
+  // Sync to backend if we have a db row ID
+  if (dbId) {
+    chrome.runtime.sendMessage({
+      type: "UPDATE_JOB_STATUS",
+      jobId,
+      dbId,
+      status,
+      appliedDate: status === "applied" && appliedDate ? new Date(appliedDate).toISOString() : null,
+    });
   }
 }
 
@@ -306,6 +318,7 @@ function loadJobs(): void {
           appliedDate,
           result: stored.result,
           url: stored.url ?? null,
+          dbId: stored.dbId,
         };
       })
       .filter((j) => j.jobTitle && j.score !== undefined);
@@ -313,7 +326,131 @@ function loadJobs(): void {
     renderStats();
     renderTable();
     updateCount();
+
+    // Backfill dbId for jobs missing it, then sync status
+    backfillDbIds().then(() => syncStatusFromBackend());
   });
+}
+
+async function backfillDbIds(): Promise<void> {
+  const authData = await new Promise<Record<string, unknown>>((resolve) =>
+    chrome.storage.local.get("auth_jwt", (result) => resolve(result)),
+  );
+  if (!authData.auth_jwt) return;
+  const token = authData.auth_jwt as string;
+
+  // Collect jobs missing a dbId
+  const toBackfill = allJobs.filter((j) => !j.dbId);
+  if (toBackfill.length === 0) return;
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/history/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jobs: toBackfill.map((j) => ({
+          job_id: j.jobId,
+          title: j.jobTitle,
+          company: j.company,
+        })),
+      }),
+    });
+    if (!r.ok) return;
+    const claimed: Array<{ job_id: string; db_id: number }> = await r.json();
+    if (claimed.length === 0) return;
+
+    // Build a jobId→db_id lookup
+    const idToDbId = new Map(claimed.map((c) => [c.job_id, c.db_id]));
+
+    // Update in-memory jobs and write back to local storage in one batch
+    const storageUpdate: Record<string, StoredScore> = {};
+    for (const job of toBackfill) {
+      const dbId = idToDbId.get(job.jobId);
+      if (!dbId) continue;
+      job.dbId = dbId;
+      const storageKey = `score_jobid_${job.jobId}`;
+      await new Promise<void>((resolve) =>
+        chrome.storage.local.get(storageKey, (d) => {
+          const existing = d[storageKey] as StoredScore | undefined;
+          if (existing) storageUpdate[storageKey] = { ...existing, dbId };
+          resolve();
+        }),
+      );
+    }
+    if (Object.keys(storageUpdate).length > 0) {
+      chrome.storage.local.set(storageUpdate);
+    }
+    console.log(`[JobScout] Backfilled dbId for ${Object.keys(storageUpdate).length} jobs`);
+  } catch {
+    // Backfill is best-effort — ignore errors
+  }
+}
+
+async function syncStatusFromBackend(): Promise<void> {
+  const authData = await new Promise<Record<string, unknown>>((resolve) =>
+    chrome.storage.local.get("auth_jwt", (result) => resolve(result)),
+  );
+  if (!authData.auth_jwt) return;
+  const token = authData.auth_jwt as string;
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/history?limit=500`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return;
+    const backendJobs: Array<{ id: number; status: string | null; url?: string }> = await r.json();
+
+    // Backend wins for jobs it already has a status for
+    let changed = false;
+    for (const bj of backendJobs) {
+      if (!bj.status) continue;
+      const local = allJobs.find((j) => j.dbId === bj.id);
+      if (!local || local.status === bj.status) continue;
+      local.status = bj.status as AppStatus;
+      chrome.storage.local.set({ [`status_${local.jobId}`]: bj.status });
+      changed = true;
+    }
+    if (changed) { renderStats(); renderTable(); }
+
+    // Push every local status to the backend via push-statuses (handles duplicates correctly)
+    const localWithStatus = allJobs.filter((j) => j.status !== null);
+    if (localWithStatus.length === 0) return;
+
+    const pushResp = await fetch(`${process.env.BACKEND_URL}/history/push-statuses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        jobs: localWithStatus.map((j) => ({
+          job_id: j.jobId,
+          title: j.jobTitle,
+          company: j.company,
+          status: j.status!,
+        })),
+      }),
+    });
+    if (!pushResp.ok) return;
+    const pushed: Array<{ job_id: string; db_id: number }> = await pushResp.json();
+    console.log(`[JobScout] Pushed ${pushed.length} statuses to backend`);
+
+    // Update dbIds in local storage for any that changed
+    const storageUpdate: Record<string, StoredScore> = {};
+    for (const p of pushed) {
+      const local = allJobs.find((j) => j.jobId === p.job_id);
+      if (!local || local.dbId === p.db_id) continue;
+      local.dbId = p.db_id;
+      const key = `score_jobid_${p.job_id}`;
+      await new Promise<void>((resolve) =>
+        chrome.storage.local.get(key, (d) => {
+          const existing = d[key] as StoredScore | undefined;
+          if (existing) storageUpdate[key] = { ...existing, dbId: p.db_id };
+          resolve();
+        }),
+      );
+    }
+    if (Object.keys(storageUpdate).length > 0) chrome.storage.local.set(storageUpdate);
+  } catch {
+    // Silently ignore — sync is best-effort
+  }
 }
 
 function applyStatFilter(action: string): void {
@@ -700,7 +837,7 @@ function renderTable(): void {
       }
 
       job.status = nextStatus;
-      saveStatus(jobId, nextStatus);
+      saveStatus(jobId, nextStatus, job.dbId, job.appliedDate);
       renderTable();
       renderStats();
     });
@@ -863,6 +1000,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.classList.add("active");
     document.getElementById(`tab-${tab}`)?.classList.add("active");
     if (tab === "filters") renderFilters();
+    if (tab === "account") loadAccountTab();
     if (tab === "history") {
       renderTable();
       updateCount();
@@ -1010,6 +1148,148 @@ function renderLearnedKeywords(): void {
     });
   });
 }
+
+// ── Account tab ─────────────────────────────────────────────────────────────
+
+async function getToken(): Promise<string | null> {
+  return new Promise((resolve) =>
+    chrome.storage.local.get("auth_jwt", (d) => resolve((d.auth_jwt as string) ?? null)),
+  );
+}
+
+function setMsg(id: string, text: string, type: "success" | "error" | "") {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = `account-msg${type ? " " + type : ""}`;
+}
+
+async function loadAccountTab(): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return;
+    const user: { email: string; first_name?: string | null; last_name?: string | null; has_api_key: boolean; created_at: string } = await r.json();
+
+    (document.getElementById("acc-first") as HTMLInputElement).value = user.first_name ?? "";
+    (document.getElementById("acc-last") as HTMLInputElement).value = user.last_name ?? "";
+    (document.getElementById("acc-email") as HTMLInputElement).value = user.email;
+    if (user.has_api_key) {
+      (document.getElementById("acc-api-key") as HTMLInputElement).placeholder = "sk-ant-••••••••••••••••••••";
+    }
+    const meta = document.getElementById("acc-meta");
+    if (meta) {
+      const joined = new Date(user.created_at).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+      meta.textContent = `Signed in as ${user.email} · Member since ${joined}`;
+    }
+  } catch {
+    // ignore
+  }
+}
+
+document.getElementById("btn-save-profile")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-save-profile") as HTMLButtonElement;
+  const token = await getToken();
+  if (!token) return;
+
+  const first = (document.getElementById("acc-first") as HTMLInputElement).value.trim();
+  const last = (document.getElementById("acc-last") as HTMLInputElement).value.trim();
+  const email = (document.getElementById("acc-email") as HTMLInputElement).value.trim();
+
+  btn.disabled = true;
+  setMsg("profile-msg", "", "");
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/auth/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ first_name: first || null, last_name: last || null, email: email || undefined }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Save failed");
+    setMsg("profile-msg", "Profile updated.", "success");
+    const meta = document.getElementById("acc-meta");
+    if (meta) meta.textContent = `Signed in as ${(data as { email: string }).email}`;
+  } catch (err) {
+    setMsg("profile-msg", (err as Error).message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("btn-save-password")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-save-password") as HTMLButtonElement;
+  const token = await getToken();
+  if (!token) return;
+
+  const curPw = (document.getElementById("acc-cur-pw") as HTMLInputElement).value;
+  const newPw = (document.getElementById("acc-new-pw") as HTMLInputElement).value;
+  const confirmPw = (document.getElementById("acc-confirm-pw") as HTMLInputElement).value;
+
+  if (!curPw || !newPw) { setMsg("password-msg", "All password fields are required.", "error"); return; }
+  if (newPw !== confirmPw) { setMsg("password-msg", "New passwords do not match.", "error"); return; }
+
+  btn.disabled = true;
+  setMsg("password-msg", "", "");
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/auth/profile`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ current_password: curPw, new_password: newPw }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Update failed");
+    setMsg("password-msg", "Password updated.", "success");
+    (document.getElementById("acc-cur-pw") as HTMLInputElement).value = "";
+    (document.getElementById("acc-new-pw") as HTMLInputElement).value = "";
+    (document.getElementById("acc-confirm-pw") as HTMLInputElement).value = "";
+  } catch (err) {
+    setMsg("password-msg", (err as Error).message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("btn-save-apikey")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-save-apikey") as HTMLButtonElement;
+  const token = await getToken();
+  if (!token) return;
+
+  const key = (document.getElementById("acc-api-key") as HTMLInputElement).value.trim();
+  if (!key) { setMsg("apikey-msg", "Enter your Anthropic API key.", "error"); return; }
+
+  btn.disabled = true;
+  setMsg("apikey-msg", "", "");
+
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/auth/api-key`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ api_key: key }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || "Save failed");
+    setMsg("apikey-msg", "API key saved.", "success");
+    (document.getElementById("acc-api-key") as HTMLInputElement).value = "";
+    (document.getElementById("acc-api-key") as HTMLInputElement).placeholder = "sk-ant-••••••••••••••••••••";
+  } catch (err) {
+    setMsg("apikey-msg", (err as Error).message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("btn-logout")?.addEventListener("click", () => {
+  chrome.storage.local.remove("auth_jwt", () => {
+    chrome.runtime.sendMessage({ type: "LOGOUT" });
+    window.close();
+  });
+});
 
 // Load data
 loadJobs();

@@ -605,6 +605,7 @@ function saveAndDisplay(
     jobAgeIsOld: data.jobAgeIsOld,
     timestamp: Date.now(),
     url: currentUrl,
+    dbId: (result as { db_id?: number }).db_id ?? undefined,
   };
 
   cachePayload[`jobid_${effectiveJobId}`] = {

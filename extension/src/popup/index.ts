@@ -35,6 +35,7 @@ interface StoredScore {
   easyApply?: boolean;
   jobAge?: string;
   jobAgeIsOld?: boolean;
+  dbId?: number;
 }
 
 function getScoreColor(score: number): string {
@@ -131,6 +132,48 @@ function renderEmpty(): void {
         Navigate to a job listing on LinkedIn, Indeed, or Hiring.cafe to see your fit score.
       </div>
     `;
+  }
+}
+
+function renderNotSignedIn(): void {
+  const content = document.getElementById("content");
+  if (content) {
+    content.innerHTML = `
+      <div class="state-empty" style="padding: 28px 16px">
+        <div style="font-size: 32px; margin-bottom: 14px">🔐</div>
+        <div style="font-weight: 600; margin-bottom: 8px">Sign in to JobScout</div>
+        <div style="font-size: 12px; color: #8892a4; margin-bottom: 20px; line-height: 1.5">
+          Create a free account to start analyzing job listings with your own Anthropic API key.
+        </div>
+        <button class="btn" id="btn-open-login" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;width:100%">
+          Sign In / Register
+        </button>
+      </div>
+    `;
+    document.getElementById("btn-open-login")?.addEventListener("click", () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL("login.html") });
+    });
+  }
+}
+
+function renderNoApiKey(): void {
+  const content = document.getElementById("content");
+  if (content) {
+    content.innerHTML = `
+      <div class="state-empty" style="padding: 28px 16px">
+        <div style="font-size: 32px; margin-bottom: 14px">🔑</div>
+        <div style="font-weight: 600; margin-bottom: 8px">API Key Required</div>
+        <div style="font-size: 12px; color: #8892a4; margin-bottom: 20px; line-height: 1.5">
+          Add your Anthropic API key to enable job analysis.
+        </div>
+        <button class="btn" id="btn-open-login" style="background:#e94560;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;width:100%">
+          Add API Key
+        </button>
+      </div>
+    `;
+    document.getElementById("btn-open-login")?.addEventListener("click", () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL("login.html") });
+    });
   }
 }
 
@@ -506,6 +549,29 @@ function isHiringCafe(url: string): boolean {
   return url.includes("hiring.cafe");
 }
 
+// Listen for auth-required message from background
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "AUTH_REQUIRED") renderNotSignedIn();
+});
+
+// Wire up header buttons (always, regardless of auth/tab state)
+document.getElementById("btn-logout")?.addEventListener("click", () => {
+  chrome.storage.local.remove("auth_jwt", () => renderNotSignedIn());
+});
+document.getElementById("btn-dashboard")?.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
+});
+
+// Check auth before loading score
+chrome.storage.local.get("auth_jwt", (authData) => {
+  if (!authData.auth_jwt) {
+    renderNotSignedIn();
+    return;
+  }
+  proceedWithScoreLoad();
+});
+
+function proceedWithScoreLoad() {
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   const tab = tabs[0];
   if (!tab?.url) {
@@ -645,11 +711,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       },
     );
   });
+
 });
-// Wire up dashboard button
-const dashBtn = document.getElementById("btn-dashboard");
-if (dashBtn) {
-  dashBtn.addEventListener("click", () => {
-    chrome.tabs.create({ url: chrome.runtime.getURL("dashboard.html") });
-  });
+
 }

@@ -1,13 +1,16 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends
+from datetime import datetime, timezone
+from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
-from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem
+from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem, UpdateStatusRequest, ClaimRequest, ClaimResult, ClaimItem, PushStatusRequest
 from app.schemas.interview_prep import InterviewPrepRequest, InterviewPrepResponse
 from app.schemas.company_info import CompanyInfoRequest, CompanyInfoResponse
 from app.services.claude import analyze_job
-from app.models.repository import get_cached_analysis, save_analysis
+from app.models.repository import get_cached_analysis, save_analysis, update_job_status
 from app.models.job import JobAnalysis
+from app.models.user import User
 from app.database import get_db
+from app.api.deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -19,65 +22,79 @@ def _is_dynamic_url(url: str) -> bool:
     return "hiring.cafe" in url
 
 
+def _require_api_key(user: User) -> str:
+    if not user.anthropic_api_key:
+        raise HTTPException(
+            status_code=402,
+            detail="No API key configured. Please add your Anthropic API key in Settings.",
+        )
+    return user.anthropic_api_key
+
+
+def _build_analyze_response(cached: JobAnalysis) -> AnalyzeResponse:
+    salary_estimate = None
+    if cached.salary_estimate:
+        from app.schemas.analyze import SalaryEstimate
+        try:
+            salary_estimate = SalaryEstimate(**cached.salary_estimate)
+        except Exception:
+            pass
+    return AnalyzeResponse(
+        fit_score=cached.fit_score,
+        should_apply=cached.should_apply,
+        one_line_verdict=cached.one_line_verdict,
+        direct_matches=cached.direct_matches,
+        transferable=cached.transferable,
+        gaps=cached.gaps,
+        red_flags=cached.red_flags,
+        green_flags=cached.green_flags,
+        salary_estimate=salary_estimate,
+        db_id=cached.id,
+    )
+
+
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_job_posting(
     request: AnalyzeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AnalyzeResponse:
     logger.info("Received analyze request: %s at %s", request.job_title, request.company)
+    api_key = _require_api_key(current_user)
 
+    cached_result = None
     if request.url and not _is_dynamic_url(request.url):
-        cached = get_cached_analysis(db, request.url)
-        if cached:
-            logger.info("Returning cached result for url: %s", request.url)
-            salary_estimate = None
-            if cached.salary_estimate:
-                from app.schemas.analyze import SalaryEstimate
-                try:
-                    salary_estimate = SalaryEstimate(**cached.salary_estimate)
-                except Exception:
-                    pass
-
-            return AnalyzeResponse(
-                fit_score=cached.fit_score,
-                should_apply=cached.should_apply,
-                one_line_verdict=cached.one_line_verdict,
-                direct_matches=cached.direct_matches,
-                transferable=cached.transferable,
-                gaps=cached.gaps,
-                red_flags=cached.red_flags,
-                green_flags=cached.green_flags,
-                salary_estimate=salary_estimate,
-            )
-
+        cached_result = get_cached_analysis(db, request.url)
     elif request.url and _is_dynamic_url(request.url):
-        cached = get_cached_analysis_by_title_company(
-            db, request.job_title, request.company
-        )
-        if cached:
-            logger.info(
-                "Returning cached result for hiring.cafe job: %s at %s",
-                request.job_title, request.company
-            )
-            salary_estimate = None
-            if cached.salary_estimate:
-                from app.schemas.analyze import SalaryEstimate
-                try:
-                    salary_estimate = SalaryEstimate(**cached.salary_estimate)
-                except Exception:
-                    pass
+        cached_result = get_cached_analysis_by_title_company(db, request.job_title, request.company)
 
-            return AnalyzeResponse(
-                fit_score=cached.fit_score,
-                should_apply=cached.should_apply,
-                one_line_verdict=cached.one_line_verdict,
-                direct_matches=cached.direct_matches,
-                transferable=cached.transferable,
-                gaps=cached.gaps,
-                red_flags=cached.red_flags,
-                green_flags=cached.green_flags,
-                salary_estimate=salary_estimate,
-            )
+    if cached_result:
+        # Check if this user already has their own row for this job
+        user_row = (
+            db.query(JobAnalysis)
+            .filter(JobAnalysis.url == request.url, JobAnalysis.user_id == current_user.id)
+            .order_by(JobAnalysis.created_at.desc())
+            .first()
+        ) if request.url else None
+
+        if user_row:
+            logger.info("Returning user's cached result for url: %s", request.url)
+            return _build_analyze_response(user_row)
+
+        # Reuse cached Claude result but save a new row for this user
+        logger.info("Saving cached result for new user: %s", request.url)
+        response = _build_analyze_response(cached_result)
+        new_row = save_analysis(
+            db=db,
+            job_title=request.job_title,
+            company=request.company,
+            job_description=request.job_description,
+            result=response,
+            url=request.url,
+            user_id=current_user.id,
+        )
+        response.db_id = new_row.id
+        return response
 
     try:
         result = analyze_job(
@@ -85,67 +102,70 @@ async def analyze_job_posting(
             company=request.company,
             job_description=request.job_description,
             listed_salary=request.listed_salary,
+            api_key=api_key,
         )
         logger.info("Analysis complete, fit_score: %s", result.fit_score)
-
     except ValueError as e:
         logger.warning("Analysis failed with validation error: %s", e)
         raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
+    except Exception:
         logger.exception("Unexpected error during analysis")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    save_analysis(
+    saved = save_analysis(
         db=db,
         job_title=request.job_title,
         company=request.company,
         job_description=request.job_description,
         result=result,
         url=request.url,
+        user_id=current_user.id,
     )
-
+    result.db_id = saved.id
     return result
 
 
-def get_cached_analysis_by_title_company(
-    db: Session,
-    job_title: str,
-    company: str
-):
+def get_cached_analysis_by_title_company(db: Session, job_title: str, company: str):
     """Cache lookup by job_title + company for sites with dynamic URLs."""
-    return db.query(JobAnalysis)\
-        .filter(
-            JobAnalysis.job_title == job_title,
-            JobAnalysis.company == company
-        )\
-        .order_by(JobAnalysis.created_at.desc())\
+    return (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.job_title == job_title, JobAnalysis.company == company)
+        .order_by(JobAnalysis.created_at.desc())
         .first()
+    )
 
 
 @router.get("/history", response_model=list[JobHistoryItem])
 async def get_history(
     db: Session = Depends(get_db),
-    limit: int = 20
+    current_user: User = Depends(get_current_user),
+    limit: int = 200,
 ) -> list[JobHistoryItem]:
-    logger.info("Fetching job history, limit: %s", limit)
-    records = db.query(JobAnalysis)\
-        .order_by(JobAnalysis.created_at.desc())\
-        .limit(limit)\
+    logger.info("Fetching job history for user %s, limit: %s", current_user.id, limit)
+    records = (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.user_id == current_user.id)
+        .order_by(JobAnalysis.created_at.desc())
+        .limit(limit)
         .all()
+    )
     return records
 
 
 @router.get("/score/{job_id}")
 async def get_score_by_job_id(
     job_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    logger.info("Score lookup by job_id: %s", job_id)
+    logger.info("Score lookup by job_id: %s for user %s", job_id, current_user.id)
 
-    record = db.query(JobAnalysis)\
-        .filter(JobAnalysis.url.contains(job_id))\
-        .order_by(JobAnalysis.created_at.desc())\
+    record = (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.url.contains(job_id), JobAnalysis.user_id == current_user.id)
+        .order_by(JobAnalysis.created_at.desc())
         .first()
+    )
 
     if not record:
         raise HTTPException(status_code=404, detail="No score found for this job ID")
@@ -165,15 +185,40 @@ async def get_score_by_job_id(
         "job_description": record.job_description,
         "created_at": record.created_at.isoformat(),
         "salary_estimate": record.salary_estimate,
+        "db_id": record.id,
     }
 
 
+@router.patch("/job/{db_id}/status", response_model=JobHistoryItem)
+async def patch_job_status(
+    db_id: int,
+    request: UpdateStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> JobAnalysis:
+    record = update_job_status(
+        db=db,
+        db_id=db_id,
+        user_id=current_user.id,
+        status=request.status,
+        applied_date=request.applied_date,
+        notes=request.notes,
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return record
+
+
 @router.post("/company-info", response_model=CompanyInfoResponse)
-async def get_company_info(request: CompanyInfoRequest) -> CompanyInfoResponse:
+async def get_company_info(
+    request: CompanyInfoRequest,
+    current_user: User = Depends(get_current_user),
+) -> CompanyInfoResponse:
     logger.info("Extracting company info for: %s", request.company)
+    api_key = _require_api_key(current_user)
     from app.services.company_info import extract_company_info
     try:
-        return extract_company_info(request)
+        return extract_company_info(request, api_key=api_key)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -182,11 +227,15 @@ async def get_company_info(request: CompanyInfoRequest) -> CompanyInfoResponse:
 
 
 @router.post("/interview-prep", response_model=InterviewPrepResponse)
-async def generate_interview_prep(request: InterviewPrepRequest) -> InterviewPrepResponse:
+async def generate_interview_prep(
+    request: InterviewPrepRequest,
+    current_user: User = Depends(get_current_user),
+) -> InterviewPrepResponse:
     logger.info("Generating interview prep for: %s at %s", request.job_title, request.company)
+    api_key = _require_api_key(current_user)
     from app.services.interview_prep import generate_prep_brief
     try:
-        return generate_prep_brief(request)
+        return generate_prep_brief(request, api_key=api_key)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -194,22 +243,147 @@ async def generate_interview_prep(request: InterviewPrepRequest) -> InterviewPre
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.post("/history/claim", response_model=list[ClaimResult])
+async def claim_jobs(
+    request: ClaimRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ClaimResult]:
+    """Backfill db_id for jobs missing it in local storage.
+    Pass 1: URL substring match (works for LinkedIn/Indeed).
+    Pass 2: title+company match (fallback for Hiring.cafe and other non-URL-keyed jobs)."""
+    results: list[ClaimResult] = []
+    unmatched: list[ClaimItem] = []
+
+    for item in request.jobs:
+        if not item.job_id:
+            continue
+        row = (
+            db.query(JobAnalysis)
+            .filter(
+                JobAnalysis.url.contains(item.job_id),
+                JobAnalysis.user_id == current_user.id,
+            )
+            .order_by(JobAnalysis.created_at.desc())
+            .first()
+        )
+        if row:
+            results.append(ClaimResult(job_id=item.job_id, db_id=row.id))
+        else:
+            unmatched.append(item)
+
+    # Title+company fallback for jobs whose ID isn't in their URL (e.g. Hiring.cafe)
+    for item in unmatched:
+        if not item.title or not item.company:
+            continue
+        row = (
+            db.query(JobAnalysis)
+            .filter(
+                JobAnalysis.job_title == item.title,
+                JobAnalysis.company == item.company,
+                JobAnalysis.user_id == current_user.id,
+            )
+            .order_by(JobAnalysis.created_at.desc())
+            .first()
+        )
+        if row:
+            results.append(ClaimResult(job_id=item.job_id, db_id=row.id))
+
+    logger.info("Backfilled db_id for %d/%d jobs for user %d", len(results), len(request.jobs), current_user.id)
+    return results
+
+
+@router.post("/history/push-statuses", response_model=list[ClaimResult])
+async def push_statuses(
+    request: PushStatusRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[ClaimResult]:
+    """Push local statuses to the backend, one unique DB row per ext_job_id.
+    Finds an existing row by ext_job_id first, then falls back to title+company,
+    then creates a minimal new row. Returns job_id→db_id mapping."""
+    results: list[ClaimResult] = []
+    for item in request.jobs:
+        # 1. Already have a row for this exact extension job ID?
+        row = (
+            db.query(JobAnalysis)
+            .filter(JobAnalysis.ext_job_id == item.job_id, JobAnalysis.user_id == current_user.id)
+            .first()
+        )
+        if row:
+            row.status = item.status
+            db.commit()
+            results.append(ClaimResult(job_id=item.job_id, db_id=row.id))
+            continue
+
+        # 2. Find any unclaimed row (no ext_job_id) by title+company and claim it
+        unclaimed = (
+            db.query(JobAnalysis)
+            .filter(
+                JobAnalysis.job_title == item.title,
+                JobAnalysis.company == item.company,
+                JobAnalysis.user_id == current_user.id,
+                JobAnalysis.ext_job_id.is_(None),
+            )
+            .order_by(JobAnalysis.created_at.desc())
+            .first()
+        )
+        if unclaimed:
+            unclaimed.ext_job_id = item.job_id
+            unclaimed.status = item.status
+            db.commit()
+            results.append(ClaimResult(job_id=item.job_id, db_id=unclaimed.id))
+            continue
+
+        # 3. No matching row at all — create a minimal placeholder row
+        new_row = JobAnalysis(
+            url=None,
+            job_title=item.title,
+            company=item.company,
+            job_description="",
+            fit_score=0,
+            should_apply=False,
+            one_line_verdict="",
+            direct_matches=[],
+            transferable=[],
+            gaps=[],
+            red_flags=[],
+            green_flags=[],
+            user_id=current_user.id,
+            ext_job_id=item.job_id,
+            status=item.status,
+        )
+        db.add(new_row)
+        db.commit()
+        db.refresh(new_row)
+        results.append(ClaimResult(job_id=item.job_id, db_id=new_row.id))
+
+    logger.info("Pushed statuses for %d jobs for user %d", len(results), current_user.id)
+    return results
+
+
 @router.post("/applied/{job_id}")
 async def mark_applied(
     job_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
-    logger.info("Marking job as applied: %s", job_id)
+    logger.info("Marking job as applied: %s for user %s", job_id, current_user.id)
 
-    record = db.query(JobAnalysis)\
-        .filter(JobAnalysis.url.contains(job_id))\
-        .order_by(JobAnalysis.created_at.desc())\
+    record = (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.url.contains(job_id), JobAnalysis.user_id == current_user.id)
+        .order_by(JobAnalysis.created_at.desc())
         .first()
+    )
 
     if not record:
         raise HTTPException(status_code=404, detail="No score found for this job ID")
 
     record.applied = True
+    record.status = "applied"
+    if not record.applied_date:
+        record.applied_date = datetime.now(timezone.utc)
     db.commit()
     logger.info("Marked job %s as applied", job_id)
     return {"job_id": job_id, "applied": True}

@@ -35,6 +35,7 @@ class AnalyzeResponse(BaseModel):
     red_flags: list[str]
     green_flags: list[str]
     salary_estimate: Optional[SalaryEstimate] = None
+    db_id: Optional[int] = None
 
 
 class JobHistoryItem(BaseModel):
@@ -46,6 +47,47 @@ class JobHistoryItem(BaseModel):
     should_apply: bool
     one_line_verdict: str
     created_at: datetime
+    status: Optional[str] = None
+    applied_date: Optional[datetime] = None
+    notes: Optional[str] = None
+    salary_estimate: Optional[dict] = None
+    direct_matches: list = []
+    transferable: list = []
+    gaps: list = []
+    red_flags: list[str] = []
+    green_flags: list[str] = []
 
     class Config:
         from_attributes = True
+
+
+class UpdateStatusRequest(BaseModel):
+    status: Optional[str] = None
+    applied_date: Optional[datetime] = None
+    notes: Optional[str] = None
+
+
+class ClaimItem(BaseModel):
+    job_id: str
+    title: str = ""
+    company: str = ""
+
+
+class ClaimRequest(BaseModel):
+    jobs: list[ClaimItem]
+
+
+class ClaimResult(BaseModel):
+    job_id: str
+    db_id: int
+
+
+class PushStatusItem(BaseModel):
+    job_id: str
+    title: str
+    company: str
+    status: str
+
+
+class PushStatusRequest(BaseModel):
+    jobs: list[PushStatusItem]

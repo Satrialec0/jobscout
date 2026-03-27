@@ -125,11 +125,14 @@ def analyze_job(
     company: str,
     job_description: str,
     listed_salary: str | None = None,
+    api_key: str | None = None,
 ) -> AnalyzeResponse:
     logger.info("Starting analysis: %s at %s", job_title, company)
 
-    settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    if not api_key:
+        settings = get_settings()
+        api_key = settings.anthropic_api_key
+    client = anthropic.Anthropic(api_key=api_key)
 
     salary_context = f"\nLISTED SALARY: {listed_salary}" if listed_salary else "\nLISTED SALARY: Not provided"
 

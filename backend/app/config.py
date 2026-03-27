@@ -9,9 +9,12 @@ ENV_PATH = Path(__file__).parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    anthropic_api_key: str
+    anthropic_api_key: str | None = None  # no longer required — users supply their own key
     database_url: str
     environment: str = "development"
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = 720  # 30 days
 
     class Config:
         env_file = str(ENV_PATH)

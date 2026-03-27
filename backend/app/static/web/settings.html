@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JobScout — Settings</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <div class="logo-badge">JS</div>
+    <span class="header-title">Settings</span>
+  </div>
+  <div class="header-right">
+    <span class="user-email" id="user-email"></span>
+    <a href="dashboard.html" class="btn-secondary">← Dashboard</a>
+    <button class="btn-secondary" id="btn-logout">Sign Out</button>
+  </div>
+</div>
+
+<div class="settings-content">
+  <div id="new-user-banner" class="hidden" style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.3);border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#4a9eff;">
+    Welcome to JobScout! Add your Anthropic API key below to start analyzing jobs.
+  </div>
+
+  <!-- API Key card -->
+  <div class="settings-card">
+    <h2>Anthropic API Key</h2>
+    <p class="card-desc">Your own API key is required for job analysis, interview prep, and company research. Get yours at <a href="https://console.anthropic.com/" target="_blank">console.anthropic.com</a>.</p>
+    <div id="api-key-error" class="error-msg hidden"></div>
+    <div id="api-key-success" class="success-msg hidden">API key saved successfully.</div>
+    <div class="api-key-row">
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="api-key-input" placeholder="sk-ant-api03-…" autocomplete="off">
+      </div>
+      <button class="btn-save" id="btn-save-key">Save</button>
+    </div>
+    <div id="key-status" style="margin-top:12px;font-size:12px;color:var(--text-muted)"></div>
+  </div>
+
+  <!-- Account info card -->
+  <div class="settings-card">
+    <h2>Account</h2>
+    <div class="info-row"><span class="info-label">Email</span><span id="info-email">—</span></div>
+    <div class="info-row"><span class="info-label">Member since</span><span id="info-since">—</span></div>
+  </div>
+</div>
+
+<script src="settings.js"></script>
+</body>
+</html>

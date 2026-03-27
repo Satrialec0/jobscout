@@ -57,11 +57,13 @@ INSTRUCTIONS:
 - questions_to_ask: 4-6 questions to ask the interviewer. Tailor to the specific role and company — avoid generic questions. Cover things like team dynamics, technical stack decisions, success metrics for the role, and growth/roadmap areas."""
 
 
-def generate_prep_brief(request: InterviewPrepRequest) -> InterviewPrepResponse:
+def generate_prep_brief(request: InterviewPrepRequest, api_key: str | None = None) -> InterviewPrepResponse:
     logger.info("Generating interview prep brief for: %s at %s", request.job_title, request.company)
 
-    settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    if not api_key:
+        settings = get_settings()
+        api_key = settings.anthropic_api_key
+    client = anthropic.Anthropic(api_key=api_key)
 
     jd_section = f"\nJOB DESCRIPTION:\n{request.job_description}" if request.job_description.strip() else "\nJOB DESCRIPTION: Not available — use the analysis results below."
 

@@ -1,5 +1,6 @@
 const path = require("path");
 const CopyPlugin = require("copy-webpack-plugin");
+const webpack = require("webpack");
 
 module.exports = {
   mode: "development",
@@ -10,6 +11,7 @@ module.exports = {
     popup: "./src/popup/index.ts",
     dashboard: "./src/dashboard/index.ts",
     interview: "./src/interview/index.ts",
+    login: "./src/login/index.ts",
   },
   output: {
     path: path.resolve(__dirname, "dist"),
@@ -31,6 +33,11 @@ module.exports = {
   plugins: [
     new CopyPlugin({
       patterns: [{ from: "public", to: "." }],
+    }),
+    new webpack.DefinePlugin({
+      "process.env.BACKEND_URL": JSON.stringify(
+        process.env.BACKEND_URL || "http://127.0.0.1:8001/api/v1",
+      ),
     }),
   ],
 };

@@ -1,10 +1,7 @@
 from datetime import datetime, timezone
-from sqlalchemy import Integer, String, Boolean, DateTime, Text, JSON
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
-
-class Base(DeclarativeBase):
-    pass
+from sqlalchemy import Integer, String, Boolean, DateTime, Text, JSON, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column
+from app.models.base import Base
 
 
 class JobAnalysis(Base):
@@ -30,3 +27,8 @@ class JobAnalysis(Base):
     )
     applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     salary_estimate: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    status: Mapped[str | None] = mapped_column(String(32), nullable=True, default=None)
+    applied_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    ext_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None, index=True)

@@ -7,145 +7,225 @@ interface AnalyzeRequest {
   url: string;
 }
 
-const BACKEND_URL = "http://127.0.0.1:8000/api/v1";
+const BACKEND_URL = process.env.BACKEND_URL;
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[JobScout] Extension installed");
 });
 
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get("auth_jwt", (data) => {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (data.auth_jwt) {
+        headers["Authorization"] = `Bearer ${data.auth_jwt as string}`;
+      }
+      resolve(headers);
+    });
+  });
+}
+
+function handle401() {
+  chrome.storage.local.remove("auth_jwt");
+  chrome.runtime.sendMessage({ type: "AUTH_REQUIRED" }).catch(() => {});
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "LOGIN") {
+    fetch(`${BACKEND_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: message.email, password: message.password }),
+    })
+      .then((r) => r.json().then((d) => ({ ok: r.ok, data: d })))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.detail || "Login failed");
+        chrome.storage.local.set({ auth_jwt: data.access_token });
+        sendResponse({ success: true, hasApiKey: data.has_api_key });
+      })
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.type === "LOGOUT") {
+    chrome.storage.local.remove("auth_jwt");
+    sendResponse({ success: true });
+    return true;
+  }
+
+  if (message.type === "SAVE_API_KEY") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/auth/api-key`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ api_key: message.apiKey }),
+      })
+        .then((r) => r.json().then((d) => ({ ok: r.ok, data: d })))
+        .then(({ ok, data }) => {
+          if (!ok) throw new Error(data.detail || "Failed to save key");
+          sendResponse({ success: true });
+        })
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
   if (message.type === "ANALYZE_JOB" || message.type === "REANALYZE_JOB") {
-    console.log(
-      "[JobScout BG] Received",
-      message.type,
-      "for:",
-      message.payload.job_title,
-    );
+    console.log("[JobScout BG] Received", message.type, "for:", message.payload.job_title);
 
     if (message.type === "REANALYZE_JOB") {
       const jobIdMatch = message.payload.url.match(/currentJobId=(\d+)/);
       if (jobIdMatch) {
         chrome.storage.local.remove(
           [`score_${message.payload.url}`, `jobid_${jobIdMatch[1]}`],
-          () => {
-            console.log("[JobScout BG] Cleared cache for re-analysis");
-          },
+          () => console.log("[JobScout BG] Cleared cache for re-analysis"),
         );
       }
     }
 
     fetchAnalysis(message.payload)
       .then((result) => {
-        console.log(
-          "[JobScout BG] Analysis complete, fit_score:",
-          result.fit_score,
-        );
+        console.log("[JobScout BG] Analysis complete, fit_score:", result.fit_score);
         sendResponse({ success: true, data: result });
       })
       .catch((err) => {
         console.error("[JobScout BG] Analysis failed:", err);
-        sendResponse({ success: false, error: err.message });
+        sendResponse({ success: false, error: err.message, code: (err as { code?: number }).code });
       });
 
     return true;
   }
 
   if (message.type === "GET_SCORE") {
-    console.log("[JobScout BG] GET_SCORE for url:", message.url);
-
     chrome.storage.local.get(`score_${message.url}`, (data) => {
       const key = `score_${message.url}`;
       if (data[key]) {
-        console.log("[JobScout BG] Score found in storage");
         sendResponse({ success: true, data: data[key] });
       } else {
         sendResponse({ success: false });
       }
     });
-
     return true;
   }
 
   if (message.type === "GET_SCORE_FROM_BACKEND") {
-    console.log(
-      "[JobScout BG] Fetching score from backend for job_id:",
-      message.jobId,
-    );
-
-    fetch(`${BACKEND_URL}/score/${message.jobId}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Not found`);
-        return r.json();
-      })
-      .then((data) => sendResponse({ success: true, data }))
-      .catch(() => sendResponse({ success: false }));
-
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/score/${message.jobId}`, { headers })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (!r.ok) throw new Error("Not found");
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch(() => sendResponse({ success: false }));
+    });
     return true;
   }
 
   if (message.type === "GET_COMPANY_INFO") {
-    console.log("[JobScout BG] Getting company info for:", message.payload?.company);
-
-    fetch(`${BACKEND_URL}/company-info`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(message.payload),
-    })
-      .then((r) => {
-        if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
-        return r.json();
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/company-info`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message.payload),
       })
-      .then((data) => sendResponse({ success: true, data }))
-      .catch((err) => sendResponse({ success: false, error: err.message }));
-
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (r.status === 402) throw new Error("no_api_key");
+          if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
     return true;
   }
 
   if (message.type === "GENERATE_INTERVIEW_PREP") {
-    console.log(
-      "[JobScout BG] Generating interview prep for:",
-      message.payload?.job_title,
-    );
-
-    fetch(`${BACKEND_URL}/interview-prep`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(message.payload),
-    })
-      .then((r) => {
-        if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
-        return r.json();
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/interview-prep`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message.payload),
       })
-      .then((data) => sendResponse({ success: true, data }))
-      .catch((err) => sendResponse({ success: false, error: err.message }));
-
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (r.status === 402) throw new Error("no_api_key");
+          if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
     return true;
   }
 
   if (message.type === "MARK_APPLIED") {
-    console.log("[JobScout BG] Marking applied for job_id:", message.jobId);
-
-    chrome.storage.local.set({ [`applied_${message.jobId}`]: true }, () => {
-      console.log("[JobScout BG] Marked applied in storage");
+    chrome.storage.local.set({ [`applied_${message.jobId}`]: true });
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/applied/${message.jobId}`, { method: "POST", headers })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
     });
+    return true;
+  }
 
-    fetch(`${BACKEND_URL}/applied/${message.jobId}`, { method: "POST" })
-      .then((r) => r.json())
-      .then((data) => sendResponse({ success: true, data }))
-      .catch((err) => sendResponse({ success: false, error: err.message }));
+  if (message.type === "UPDATE_JOB_STATUS") {
+    // Update local storage immediately
+    if (message.status === null) {
+      chrome.storage.local.remove(`status_${message.jobId}`);
+    } else {
+      chrome.storage.local.set({ [`status_${message.jobId}`]: message.status });
+    }
 
+    if (!message.dbId) { sendResponse({ success: true }); return true; }
+
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/job/${message.dbId}/status`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          status: message.status,
+          ...(message.appliedDate ? { applied_date: message.appliedDate } : {}),
+        }),
+      })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          return r.ok ? r.json() : Promise.reject(new Error(`PATCH failed ${r.status}`));
+        })
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
     return true;
   }
 });
 
 async function fetchAnalysis(payload: AnalyzeRequest) {
   console.log("[JobScout BG] Fetching from backend...");
+  const headers = await getAuthHeaders();
 
   const response = await fetch(`${BACKEND_URL}/analyze`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
+
+  if (response.status === 401) {
+    handle401();
+    const err = new Error("Authentication required. Please sign in to JobScout.");
+    (err as { code?: number }).code = 401;
+    throw err;
+  }
+
+  if (response.status === 402) {
+    const err = new Error("no_api_key");
+    (err as { code?: number }).code = 402;
+    throw err;
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -154,3 +234,5 @@ async function fetchAnalysis(payload: AnalyzeRequest) {
 
   return response.json();
 }
+
+export {};

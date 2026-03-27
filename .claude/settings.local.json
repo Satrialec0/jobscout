@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(python -m alembic current)",
+      "Bash(python -m alembic stamp 4ffcfd5ba25c)",
+      "Bash(python -c \":*)",
+      "Bash(python -m alembic upgrade head)",
+      "Bash(pip install:*)",
+      "Bash(python -c \"from app.main import app; print\\(''Backend imports OK''\\)\")",
+      "Bash(curl -s -X POST http://localhost:8000/api/v1/auth/register -H \"Content-Type: application/json\" -d '{\"\"email\"\":\"\"test@test.com\"\",\"\"password\"\":\"\"testpass123\"\"}')",
+      "Bash(curl:*)",
+      "Bash(alembic current:*)",
+      "Bash(alembic history:*)",
+      "Bash(.venv/Scripts/python -c \"import bcrypt; print\\(bcrypt.__version__\\)\")",
+      "Bash(alembic upgrade:*)",
+      "Bash(psql:*)"
     ]
   }
 }

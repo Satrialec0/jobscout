@@ -35,11 +35,13 @@ WEB_SEARCH_TOOL = {
 }
 
 
-def extract_company_info(request: CompanyInfoRequest) -> CompanyInfoResponse:
+def extract_company_info(request: CompanyInfoRequest, api_key: str | None = None) -> CompanyInfoResponse:
     logger.info("Extracting company info for: %s", request.company)
 
-    settings = get_settings()
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    if not api_key:
+        settings = get_settings()
+        api_key = settings.anthropic_api_key
+    client = anthropic.Anthropic(api_key=api_key)
 
     jd_section = request.job_description.strip() or "No job description provided."
 

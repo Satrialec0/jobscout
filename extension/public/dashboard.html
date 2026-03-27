@@ -575,6 +575,117 @@
       .prep-btn:hover {
         opacity: 0.8;
       }
+
+      /* Account tab */
+      .account-wrap {
+        max-width: 480px;
+        margin: 40px auto;
+        padding: 0 24px;
+      }
+
+      .account-section {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 10px;
+        padding: 24px;
+        margin-bottom: 20px;
+      }
+
+      .account-section h3 {
+        font-size: 13px;
+        font-weight: 600;
+        color: #94a3b8;
+        margin-bottom: 18px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #1e293b;
+      }
+
+      .form-row {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        flex: 1;
+      }
+
+      .form-group label {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 500;
+      }
+
+      .form-group input {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        width: 100%;
+        transition: border-color 0.15s;
+      }
+
+      .form-group input:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+
+      .form-group input::placeholder {
+        color: #334155;
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 6px;
+      }
+
+      .btn-save {
+        background: #0c4a6e;
+        color: #38bdf8;
+        border: 1px solid #0369a1;
+        padding: 7px 18px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-save:hover { opacity: 0.85; }
+      .btn-save:disabled { opacity: 0.4; cursor: default; }
+
+      .btn-logout {
+        background: #2d1515;
+        color: #f87171;
+        border: 1px solid #7f1d1d;
+        padding: 8px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+        transition: opacity 0.15s;
+      }
+      .btn-logout:hover { opacity: 0.85; }
+
+      .account-msg {
+        font-size: 11px;
+        margin-top: 8px;
+        min-height: 16px;
+      }
+      .account-msg.success { color: #4ade80; }
+      .account-msg.error { color: #f87171; }
+
+      .account-meta {
+        font-size: 11px;
+        color: #475569;
+        margin-top: 14px;
+      }
     </style>
   </head>
   <body>
@@ -593,6 +704,7 @@
     <div class="tab-bar">
       <button class="tab-btn active" data-tab="history">📋 History</button>
       <button class="tab-btn" data-tab="filters">🔍 Filters & Hidden</button>
+      <button class="tab-btn" data-tab="account">👤 Account</button>
     </div>
 
     <div class="tab-panel active" id="tab-history">
@@ -711,6 +823,73 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-account">
+      <div class="account-wrap">
+
+        <div class="account-section">
+          <h3>Profile</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="acc-first">First Name</label>
+              <input type="text" id="acc-first" placeholder="First name" />
+            </div>
+            <div class="form-group">
+              <label for="acc-last">Last Name</label>
+              <input type="text" id="acc-last" placeholder="Last name" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label for="acc-email">Email</label>
+            <input type="email" id="acc-email" placeholder="your@email.com" />
+          </div>
+          <div class="form-actions">
+            <button class="btn-save" id="btn-save-profile">Save Changes</button>
+          </div>
+          <div class="account-msg" id="profile-msg"></div>
+        </div>
+
+        <div class="account-section">
+          <h3>Change Password</h3>
+          <div class="form-group" style="margin-bottom:14px">
+            <label for="acc-cur-pw">Current Password</label>
+            <input type="password" id="acc-cur-pw" placeholder="••••••••" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="acc-new-pw">New Password</label>
+              <input type="password" id="acc-new-pw" placeholder="••••••••" />
+            </div>
+            <div class="form-group">
+              <label for="acc-confirm-pw">Confirm</label>
+              <input type="password" id="acc-confirm-pw" placeholder="••••••••" />
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-save" id="btn-save-password">Update Password</button>
+          </div>
+          <div class="account-msg" id="password-msg"></div>
+        </div>
+
+        <div class="account-section">
+          <h3>Anthropic API Key</h3>
+          <div class="form-group" style="margin-bottom:14px">
+            <label for="acc-api-key">API Key</label>
+            <input type="password" id="acc-api-key" placeholder="sk-ant-..." />
+          </div>
+          <div class="form-actions">
+            <button class="btn-save" id="btn-save-apikey">Save Key</button>
+          </div>
+          <div class="account-msg" id="apikey-msg"></div>
+        </div>
+
+        <div class="account-section">
+          <div class="account-meta" id="acc-meta"></div>
+          <button class="btn-logout" id="btn-logout" style="margin-top:16px">Sign Out</button>
+        </div>
+
       </div>
     </div>
 
