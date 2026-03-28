@@ -319,6 +319,8 @@ function injectVisibilityButton(card: Element, isDimmed: boolean): void {
     color: #64748b;
     border: 1px solid #334155;
     user-select: none;
+    position: relative;
+    z-index: 100;
     pointer-events: all;
   `;
   btn.textContent = isDimmed ? "👁 Show" : "👁 Hide";
@@ -654,7 +656,7 @@ function displayResult(
   }
   // Update hiring.cafe modal panel + card badge
   if (detectSite(currentUrl) === "hiring-cafe") {
-    updateModalPanel(result);
+    updateModalPanel(result, effectiveJobId);
     // Find card by current jobId OR update card that modal belongs to
     let card = document.querySelector<HTMLElement>(
       `[data-jobscout-hc-id="${effectiveJobId}"]`,
@@ -1052,7 +1054,7 @@ function injectModalLoadingPanel(modal: HTMLElement): void {
   modal.insertBefore(panel, modal.firstChild);
 }
 
-function updateModalPanel(result: AnalyzeResponse): void {
+function updateModalPanel(result: AnalyzeResponse, jobId: string): void {
   const modal = document.querySelector<HTMLElement>(".chakra-modal__body");
   if (!modal) return;
   const panel = modal.querySelector<HTMLElement>("[data-jobscout-modal-panel]");
@@ -1094,15 +1096,57 @@ function updateModalPanel(result: AnalyzeResponse): void {
       font-size: 14px; font-weight: 700; color: ${c.text}; flex-shrink: 0; margin-top: 2px;
     ">${result.fit_score}</div>
     <div style="flex: 1; min-width: 0;">
-      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap;">
         ${applyLabel}
         ${salaryText ? `<span style="color:#475569; font-size:11px;">${salaryText}</span>` : ""}
+        <button data-jobscout-apply-btn style="
+          margin-left: auto; background: #0f2d1a; color: #4ade80;
+          border: 1px solid #166534; border-radius: 5px;
+          padding: 2px 10px; font-size: 11px; font-weight: 600;
+          cursor: pointer; white-space: nowrap;
+        ">Mark Applied</button>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 4px;">
         ${pills || `<span style="color:#475569; font-size:11px;">No flags reported</span>`}
       </div>
     </div>
   `;
+
+  // Wire the button — read dbId from storage then send status update
+  const applyBtn = panel.querySelector<HTMLButtonElement>("[data-jobscout-apply-btn]");
+  if (applyBtn) {
+    // Show already-applied state if status is set
+    chrome.storage.local.get(`status_${jobId}`, (s) => {
+      if ((s[`status_${jobId}`] as string | undefined) === "applied") {
+        applyBtn.textContent = "Applied ✓";
+        applyBtn.style.background = "#052e16";
+        applyBtn.style.color = "#86efac";
+        applyBtn.style.cursor = "default";
+        applyBtn.disabled = true;
+      }
+    });
+
+    applyBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      chrome.storage.local.get(`score_jobid_${jobId}`, (s) => {
+        const stored = s[`score_jobid_${jobId}`] as { dbId?: number } | undefined;
+        const appliedDate = new Date().toISOString();
+        chrome.runtime.sendMessage({
+          type: "UPDATE_JOB_STATUS",
+          jobId,
+          dbId: stored?.dbId,
+          status: "applied",
+          appliedDate,
+        });
+        chrome.storage.local.set({ [`applied_date_${jobId}`]: appliedDate });
+        applyBtn.textContent = "Applied ✓";
+        applyBtn.style.background = "#052e16";
+        applyBtn.style.color = "#86efac";
+        applyBtn.style.cursor = "default";
+        applyBtn.disabled = true;
+      });
+    });
+  }
 }
 
 function initHiringCafeModalWatcher(): void {
@@ -1129,7 +1173,8 @@ function initHiringCafeModalWatcher(): void {
 
     const currentJobId = buildHCJobId(title, company);
 
-    if (currentJobId === lastModalJobId) return;
+    const panelAlreadyPresent = !!modal.querySelector("[data-jobscout-modal-panel]");
+    if (currentJobId === lastModalJobId && panelAlreadyPresent) return;
     lastModalJobId = currentJobId;
 
     // Inject loading panel immediately so the user sees feedback right away
