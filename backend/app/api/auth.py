@@ -67,7 +67,8 @@ async def save_api_key(
     if not request.api_key.startswith("sk-ant-"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Anthropic API key format")
 
-    current_user.anthropic_api_key = request.api_key
+    from app.services.encryption import encrypt
+    current_user.anthropic_api_key = encrypt(request.api_key)
     db.commit()
     db.refresh(current_user)
     logger.info("API key updated for user: %s (id=%s)", current_user.email, current_user.id)
