@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.models.base import Base
 import app.models.job  # noqa: F401 — registers JobAnalysis with Base.metadata
 import app.models.user  # noqa: F401 — registers User with Base.metadata
+import app.models.application_data  # noqa: F401 — registers ApplicationData with Base.metadata
 
 config = context.config
 if config.config_file_name is not None:

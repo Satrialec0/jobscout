@@ -576,6 +576,22 @@
         opacity: 0.8;
       }
 
+      .app-btn {
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        background: #0c1a2e;
+        color: #38bdf8;
+        border: 1px solid #0369a1;
+        margin-left: 6px;
+        transition: opacity 0.15s;
+      }
+      .app-btn:hover {
+        opacity: 0.8;
+      }
+
       /* Account tab */
       .account-wrap {
         max-width: 480px;
@@ -784,7 +800,7 @@
           <thead>
             <tr>
               <th></th>
-              <th data-col="score" class="sorted">Score ↕</th>
+              <th data-col="score">Score ↕</th>
               <th data-col="title">Job Title</th>
               <th data-col="company">Company</th>
               <th data-col="salary">Salary</th>
@@ -792,7 +808,7 @@
               <th data-col="apply">Rec.</th>
               <th data-col="status">Status</th>
               <th data-col="applied_date">Applied</th>
-              <th data-col="date">Analyzed</th>
+              <th data-col="date" class="sorted">Analyzed ↓</th>
             </tr>
           </thead>
           <tbody id="job-tbody"></tbody>

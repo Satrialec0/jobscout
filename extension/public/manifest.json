@@ -34,7 +34,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["dashboard.html", "interview.html", "login.html"],
+      "resources": ["dashboard.html", "interview.html", "login.html", "app-assist.html"],
       "matches": ["<all_urls>"]
     }
   ]

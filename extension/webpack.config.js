@@ -12,6 +12,7 @@ module.exports = {
     dashboard: "./src/dashboard/index.ts",
     interview: "./src/interview/index.ts",
     login: "./src/login/index.ts",
+    "app-assist": "./src/app-assist/index.ts",
   },
   output: {
     path: path.resolve(__dirname, "dist"),

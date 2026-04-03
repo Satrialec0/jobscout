@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem, UpdateStatusRequest, ClaimRequest, ClaimResult, ClaimItem, PushStatusRequest
 from app.schemas.interview_prep import InterviewPrepRequest, InterviewPrepResponse
 from app.schemas.company_info import CompanyInfoRequest, CompanyInfoResponse
+from app.schemas.app_assist import CoverLetterRequest, CoverLetterResponse, AppQuestionRequest, AppQuestionResponse, AppAssistData
 from app.services.claude import analyze_job
 from app.models.repository import get_cached_analysis, save_analysis, update_job_status
 from app.models.job import JobAnalysis
+from app.models.application_data import ApplicationData
 from app.models.user import User
 from app.database import get_db
 from app.api.deps import get_current_user
@@ -28,7 +30,8 @@ def _require_api_key(user: User) -> str:
             status_code=402,
             detail="No API key configured. Please add your Anthropic API key in Settings.",
         )
-    return user.anthropic_api_key
+    from app.services.encryption import decrypt
+    return decrypt(user.anthropic_api_key)
 
 
 def _build_analyze_response(cached: JobAnalysis) -> AnalyzeResponse:
@@ -360,6 +363,109 @@ async def push_statuses(
 
     logger.info("Pushed statuses for %d jobs for user %d", len(results), current_user.id)
     return results
+
+
+@router.post("/cover-letter", response_model=CoverLetterResponse)
+async def generate_cover_letter_endpoint(
+    request: CoverLetterRequest,
+    current_user: User = Depends(get_current_user),
+) -> CoverLetterResponse:
+    logger.info("Generating cover letter for: %s at %s", request.job_title, request.company)
+    api_key = _require_api_key(current_user)
+    from app.services.cover_letter import generate_cover_letter
+    try:
+        return generate_cover_letter(request, api_key=api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error during cover letter generation")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/app-question", response_model=AppQuestionResponse)
+async def generate_app_question_endpoint(
+    request: AppQuestionRequest,
+    current_user: User = Depends(get_current_user),
+) -> AppQuestionResponse:
+    logger.info("Generating app answer for: %s at %s", request.job_title, request.company)
+    api_key = _require_api_key(current_user)
+    from app.services.app_questions import generate_app_answer
+    try:
+        return generate_app_answer(request, api_key=api_key)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("Unexpected error during app question generation")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/app-assist/{db_id}", response_model=AppAssistData)
+async def get_app_assist(
+    db_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppAssistData:
+    row = (
+        db.query(ApplicationData)
+        .filter(ApplicationData.job_analysis_id == db_id, ApplicationData.user_id == current_user.id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="No application data found")
+    return AppAssistData(
+        cover_letter=row.cover_letter,
+        cover_letter_length=row.cover_letter_length,
+        salary_ask=row.salary_ask,
+        questions=row.questions or [],
+        updated_at=row.updated_at,
+    )
+
+
+@router.put("/app-assist/{db_id}", response_model=AppAssistData)
+async def upsert_app_assist(
+    db_id: int,
+    request: AppAssistData,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AppAssistData:
+    # Verify job belongs to this user
+    job = (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.id == db_id, JobAnalysis.user_id == current_user.id)
+        .first()
+    )
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    row = (
+        db.query(ApplicationData)
+        .filter(ApplicationData.job_analysis_id == db_id, ApplicationData.user_id == current_user.id)
+        .first()
+    )
+    if row:
+        row.cover_letter = request.cover_letter
+        row.cover_letter_length = request.cover_letter_length
+        row.salary_ask = request.salary_ask
+        row.questions = request.questions
+    else:
+        row = ApplicationData(
+            job_analysis_id=db_id,
+            user_id=current_user.id,
+            cover_letter=request.cover_letter,
+            cover_letter_length=request.cover_letter_length,
+            salary_ask=request.salary_ask,
+            questions=request.questions,
+        )
+        db.add(row)
+    db.commit()
+    db.refresh(row)
+    return AppAssistData(
+        cover_letter=row.cover_letter,
+        cover_letter_length=row.cover_letter_length,
+        salary_ask=row.salary_ask,
+        questions=row.questions or [],
+        updated_at=row.updated_at,
+    )
 
 
 @router.post("/applied/{job_id}")

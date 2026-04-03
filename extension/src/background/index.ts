@@ -160,6 +160,77 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "GENERATE_COVER_LETTER") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/cover-letter`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message.payload),
+      })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (r.status === 402) throw new Error("no_api_key");
+          if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
+  if (message.type === "GENERATE_APP_ANSWER") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/app-question`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(message.payload),
+      })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (r.status === 402) throw new Error("no_api_key");
+          if (!r.ok) return r.text().then((t) => { throw new Error(`Backend error ${r.status}: ${t}`); });
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
+  if (message.type === "GET_APP_ASSIST") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/app-assist/${message.dbId}`, { headers })
+        .then((r) => {
+          if (r.status === 401) { handle401(); throw new Error("Unauthorized"); }
+          if (r.status === 404) throw new Error("not_found");
+          if (!r.ok) throw new Error(`Backend error ${r.status}`);
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
+  if (message.type === "SAVE_APP_ASSIST") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/app-assist/${message.dbId}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(message.payload),
+      })
+        .then((r) => {
+          if (r.status === 401) { handle401(); }
+          if (!r.ok) throw new Error(`Backend error ${r.status}`);
+          return r.json();
+        })
+        .then((data) => sendResponse({ success: true, data }))
+        .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
   if (message.type === "MARK_APPLIED") {
     chrome.storage.local.set({ [`applied_${message.jobId}`]: true });
     getAuthHeaders().then((headers) => {

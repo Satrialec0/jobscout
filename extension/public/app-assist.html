@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JobScout — Application Assistance</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+      }
+
+      /* ── Header ── */
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 24px;
+        border-bottom: 1px solid #1e293b;
+        background: #0f172a;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+      }
+
+      .btn-back {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        border-radius: 6px;
+        padding: 5px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        flex-shrink: 0;
+      }
+      .btn-back:hover { opacity: 0.8; }
+
+      .header-logo {
+        width: 22px;
+        height: 22px;
+        background: #38bdf8;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f172a;
+        flex-shrink: 0;
+      }
+
+      .header-job {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .header-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: #f1f5f9;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .header-company {
+        font-size: 12px;
+        color: #64748b;
+      }
+
+      .score-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        flex-shrink: 0;
+      }
+
+      .status-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 600;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      /* ── Content ── */
+      .content {
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        max-width: 900px;
+        margin: 0 auto;
+      }
+
+      /* ── Section card ── */
+      .section-card {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 16px;
+        cursor: pointer;
+        user-select: none;
+        border-bottom: 1px solid transparent;
+        transition: background 0.1s;
+      }
+      .section-header:hover { background: #1a2540; }
+      .section-header.open { border-bottom-color: #1e293b; }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+
+      .section-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      .section-chevron {
+        font-size: 10px;
+        color: #475569;
+        transition: transform 0.2s;
+      }
+      .section-chevron.open { transform: rotate(180deg); }
+
+      .section-body {
+        padding: 14px 16px;
+        display: none;
+      }
+      .section-body.open { display: block; }
+
+      /* ── Textarea ── */
+      textarea {
+        width: 100%;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        line-height: 1.7;
+        padding: 10px 12px;
+        resize: vertical;
+        min-height: 80px;
+        transition: border-color 0.15s;
+      }
+      textarea:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      textarea::placeholder { color: #334155; }
+
+      /* ── Buttons ── */
+      .btn-generate {
+        background: #0c2240;
+        border: 1px solid #1e4d8c;
+        color: #38bdf8;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-generate:hover { opacity: 0.85; }
+      .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .btn-copy {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        border-radius: 5px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+        white-space: nowrap;
+      }
+      .btn-copy:hover { opacity: 0.8; }
+      .btn-copy.copied {
+        background: #052e16;
+        color: #4ade80;
+        border-color: #166534;
+      }
+      .btn-copy:disabled { opacity: 0.4; cursor: not-allowed; }
+
+      /* ── Cover letter tabs ── */
+      .cover-tab-bar {
+        display: none;
+        gap: 4px;
+        margin-bottom: -1px;
+        flex-wrap: wrap;
+      }
+
+      .cover-tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border-radius: 5px 5px 0 0;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid #1e293b;
+        border-bottom: 1px solid #1e293b;
+        background: #1e293b;
+        color: #475569;
+        transition: color 0.15s, background 0.15s;
+        user-select: none;
+      }
+      .cover-tab:hover { color: #94a3b8; }
+      .cover-tab.active {
+        background: #0f172a;
+        color: #38bdf8;
+        border-color: #334155;
+        border-bottom-color: #0f172a;
+      }
+
+      .cover-tab-close {
+        font-size: 10px;
+        color: #334155;
+        cursor: pointer;
+        padding: 0 1px;
+        line-height: 1;
+        transition: color 0.15s;
+      }
+      .cover-tab-close:hover { color: #f87171; }
+
+      #cover-letter-text {
+        border-top-left-radius: 0;
+      }
+
+      .btn-add-question {
+        background: #1e293b;
+        border: 1px dashed #334155;
+        border-radius: 6px;
+        color: #475569;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+        transition: border-color 0.15s, color 0.15s;
+        margin-top: 8px;
+      }
+      .btn-add-question:hover { border-color: #475569; color: #94a3b8; }
+
+      /* ── Generate actions row ── */
+      .generate-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .ai-meta {
+        font-size: 11px;
+        color: #475569;
+      }
+
+      /* ── Section header with right action ── */
+      .section-header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+      }
+
+      /* ── Q&A blocks ── */
+      .qa-list {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .qa-block {
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .qa-block-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      .qa-question-input {
+        flex: 1;
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 5px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        padding: 7px 10px;
+        resize: none;
+        min-height: 38px;
+        transition: border-color 0.15s;
+      }
+      .qa-question-input:focus { outline: none; border-color: #38bdf8; }
+      .qa-question-input::placeholder { color: #334155; }
+
+      .qa-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .btn-generate-answer {
+        background: #0c2240;
+        border: 1px solid #1e4d8c;
+        color: #38bdf8;
+        border-radius: 5px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: opacity 0.15s;
+      }
+      .btn-generate-answer:hover { opacity: 0.85; }
+      .btn-generate-answer:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .btn-remove-qa {
+        background: none;
+        border: none;
+        color: #475569;
+        font-size: 14px;
+        cursor: pointer;
+        padding: 5px 4px;
+        line-height: 1;
+        transition: color 0.15s;
+        flex-shrink: 0;
+      }
+      .btn-remove-qa:hover { color: #f87171; }
+
+      .qa-answer-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .qa-answer-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: #334155;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+
+      .qa-empty-state {
+        font-size: 13px;
+        color: #334155;
+        font-style: italic;
+        padding: 6px 0;
+      }
+
+      /* ── Salary section ── */
+      .salary-context {
+        font-size: 13px;
+        color: #64748b;
+        margin-bottom: 16px;
+        padding: 10px 12px;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+      }
+
+      .salary-range-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+
+      .salary-range-values {
+        font-size: 15px;
+        font-weight: 600;
+        color: #e2e8f0;
+      }
+
+      .salary-slider-wrap {
+        margin-bottom: 16px;
+      }
+
+      .salary-slider-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+
+      input[type="range"] {
+        flex: 1;
+        accent-color: #38bdf8;
+        cursor: pointer;
+        height: 6px;
+      }
+
+      .salary-manual-input {
+        width: 110px;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 6px;
+        color: #e2e8f0;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 6px 10px;
+        text-align: right;
+        transition: border-color 0.15s;
+        flex-shrink: 0;
+      }
+      .salary-manual-input:focus { outline: none; border-color: #38bdf8; }
+
+      .salary-percentile {
+        font-size: 13px;
+        color: #94a3b8;
+        min-height: 20px;
+      }
+
+      .percentile-value {
+        font-weight: 700;
+        color: #38bdf8;
+      }
+
+      .percentile-warn {
+        color: #f87171;
+      }
+
+      /* ── Footer buttons ── */
+      .footer-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 0 8px;
+      }
+
+      .btn-mark-applied {
+        background: #052e16;
+        border: 1px solid #166534;
+        color: #4ade80;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-mark-applied:hover { opacity: 0.85; }
+      .btn-mark-applied:disabled { opacity: 0.6; cursor: default; }
+
+      .btn-return-dashboard {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        border-radius: 6px;
+        padding: 8px 16px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      .btn-return-dashboard:hover { opacity: 0.8; }
+
+      /* ── Loading spinner ── */
+      .loading-spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid #1e293b;
+        border-top-color: #38bdf8;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        margin-right: 5px;
+        vertical-align: middle;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .error-msg {
+        font-size: 12px;
+        color: #f87171;
+        padding: 8px 12px;
+        background: #2d1515;
+        border: 1px solid #7f1d1d;
+        border-radius: 6px;
+        margin-top: 6px;
+      }
+
+      /* ── Save indicator ── */
+      .save-indicator {
+        font-size: 11px;
+        color: #475569;
+        position: fixed;
+        bottom: 16px;
+        right: 20px;
+        transition: opacity 0.3s;
+        opacity: 0;
+      }
+      .save-indicator.visible { opacity: 1; }
+
+      .no-salary-msg {
+        font-size: 13px;
+        color: #334155;
+        font-style: italic;
+        padding: 6px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header" id="header">
+      <button class="btn-back" id="btn-back">← Back</button>
+      <div class="header-logo">JS</div>
+      <div class="header-job">
+        <div class="header-title" id="header-title">Loading...</div>
+        <div class="header-company" id="header-company"></div>
+      </div>
+      <div class="score-pill" id="score-pill"></div>
+      <span class="status-badge" id="status-badge"></span>
+    </div>
+
+    <div class="content">
+
+      <!-- Cover Letter -->
+      <div class="section-card">
+        <div class="section-header open" id="hdr-cover">
+          <div class="section-title">
+            <div class="section-dot" style="background:#38bdf8"></div>
+            Cover Letter
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <button class="btn-copy" id="btn-copy-cover" disabled>Copy</button>
+            <span class="section-chevron open" id="chv-cover">▼</span>
+          </div>
+        </div>
+        <div class="section-body open" id="body-cover">
+          <div class="generate-row">
+            <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:11px;color:#475569;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Length</span>
+                <input type="range" id="cover-length-slider" min="0" max="2" step="1" value="1" style="flex:1;max-width:180px" />
+                <span style="font-size:12px;color:#64748b;width:100px" id="cover-length-label">Medium (~400 words)</span>
+              </div>
+            </div>
+            <button class="btn-generate" id="btn-generate-cover">✦ Generate Cover Letter</button>
+          </div>
+          <div class="cover-tab-bar" id="cover-tab-bar"></div>
+          <textarea id="cover-letter-text" rows="20" placeholder='Click "Generate Cover Letter" to create a tailored cover letter for this role.'></textarea>
+        </div>
+      </div>
+
+      <!-- Application Questions -->
+      <div class="section-card">
+        <div class="section-header open" id="hdr-questions">
+          <div class="section-title">
+            <div class="section-dot" style="background:#a78bfa"></div>
+            Application Questions
+          </div>
+          <span class="section-chevron open" id="chv-questions">▼</span>
+        </div>
+        <div class="section-body open" id="body-questions">
+          <div class="qa-list" id="qa-list">
+            <div class="qa-empty-state" id="qa-empty">No questions added yet. Click "Add Question" to paste in a specific question from the application.</div>
+          </div>
+          <button class="btn-add-question" id="btn-add-question">+ Add Question</button>
+        </div>
+      </div>
+
+      <!-- Salary Expectations -->
+      <div class="section-card">
+        <div class="section-header open" id="hdr-salary">
+          <div class="section-title">
+            <div class="section-dot" style="background:#4ade80"></div>
+            Salary Expectations
+          </div>
+          <span class="section-chevron open" id="chv-salary">▼</span>
+        </div>
+        <div class="section-body open" id="body-salary">
+          <div id="salary-content"></div>
+        </div>
+      </div>
+
+      <!-- Footer actions -->
+      <div class="footer-actions">
+        <button class="btn-mark-applied" id="btn-mark-applied">Mark as Applied</button>
+        <button class="btn-return-dashboard" id="btn-return-dashboard">Return to Dashboard</button>
+      </div>
+
+    </div>
+
+    <div class="save-indicator" id="save-indicator">Saved</div>
+
+    <script src="app-assist.js"></script>
+  </body>
+</html>

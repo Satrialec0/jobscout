@@ -14,7 +14,12 @@
       "Bash(alembic history:*)",
       "Bash(.venv/Scripts/python -c \"import bcrypt; print\\(bcrypt.__version__\\)\")",
       "Bash(alembic upgrade:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(python3:*)",
+      "Bash(docker exec:*)",
+      "Bash(python -c \"from app.models.application_data import ApplicationData; print\\(''Model imported OK''\\)\")",
+      "Bash(alembic revision:*)",
+      "Bash(python -c \"from app.api.analyze import router; print\\(''API imports OK''\\)\")"
     ]
   }
 }

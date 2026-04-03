@@ -106,7 +106,7 @@ const STATUS_CONFIG: Record<
 };
 
 let allJobs: DashboardJob[] = [];
-let sortCol = "score";
+let sortCol = "date";
 let sortAsc = false;
 let expandedJobId: string | null = null;
 
@@ -749,6 +749,7 @@ function renderTable(): void {
         ${(job.status === "phone_screen" || job.status === "interviewed")
           ? `<button class="prep-btn" data-job-id="${job.jobId}" title="Open Interview Prep">📋 Prep</button>`
           : ""}
+        <button class="app-btn" data-job-id="${job.jobId}" title="Open Application Assistance">📝 Application</button>
       </td>
       <td class="date-cell">${job.appliedDate ? formatDate(job.appliedDate) : "<span style='color:#334155'>—</span>"}</td>
       <td class="date-cell">${formatDate(job.timestamp)}</td>
@@ -850,6 +851,17 @@ function renderTable(): void {
       const jobId = btn.getAttribute("data-job-id")!;
       chrome.tabs.create({
         url: chrome.runtime.getURL("interview.html") + "#" + jobId,
+      });
+    });
+  });
+
+  // Application assistance button
+  tbody.querySelectorAll<HTMLButtonElement>(".app-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const jobId = btn.getAttribute("data-job-id")!;
+      chrome.tabs.create({
+        url: chrome.runtime.getURL("app-assist.html") + "#" + jobId,
       });
     });
   });
