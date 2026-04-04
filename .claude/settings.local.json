@@ -19,7 +19,13 @@
       "Bash(docker exec:*)",
       "Bash(python -c \"from app.models.application_data import ApplicationData; print\\(''Model imported OK''\\)\")",
       "Bash(alembic revision:*)",
-      "Bash(python -c \"from app.api.analyze import router; print\\(''API imports OK''\\)\")"
+      "Bash(python -c \"from app.api.analyze import router; print\\(''API imports OK''\\)\")",
+      "Bash(find /c/Users/Christopher Satriale/Projects/jobscout -name *.py -type f)",
+      "Bash(python -c \"from app.api.reach import router; from app.services.reach import cluster_reach_jobs, analyze_reach_group; from app.schemas.reach import ClusterRequest, ReachAnalyzeRequest; print\\(''OK''\\)\")",
+      "Bash(pip --version)",
+      "Bash(where python:*)",
+      "Bash(py --version)",
+      "Bash(py -c \"import sys; print\\(sys.executable\\)\")"
     ]
   }
 }
