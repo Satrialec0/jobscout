@@ -656,7 +656,7 @@ function displayResult(
   }
   // Update hiring.cafe modal panel + card badge
   if (detectSite(currentUrl) === "hiring-cafe") {
-    updateModalPanel(result, effectiveJobId);
+    updateModalPanel(result, effectiveJobId, data.jobTitle, data.company);
     // Find card by current jobId OR update card that modal belongs to
     let card = document.querySelector<HTMLElement>(
       `[data-jobscout-hc-id="${effectiveJobId}"]`,
@@ -1024,7 +1024,40 @@ function getScoreColor(score: number): { bg: string; text: string; border: strin
   return { bg: "#2d1515", text: "#f87171", border: "#f87171" };
 }
 
-function injectModalLoadingPanel(modal: HTMLElement): void {
+function buildReachButtonStyle(isReach: boolean): string {
+  return isReach
+    ? `background:#1c1400;color:#fbbf24;border:1px solid #78350f;border-radius:5px;padding:2px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;`
+    : `background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:5px;padding:2px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;`;
+}
+
+function wireModalReachButton(btn: HTMLButtonElement, jobId: string, title: string, company: string, url: string): void {
+  chrome.storage.local.get(`reach_jobid_${jobId}`, (data) => {
+    const isReach = !!data[`reach_jobid_${jobId}`];
+    btn.textContent = isReach ? "⭐ Reach" : "☆ Reach";
+    btn.style.cssText = buildReachButtonStyle(isReach);
+  });
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const reachKey = `reach_jobid_${jobId}`;
+    chrome.storage.local.get(reachKey, (data) => {
+      if (data[reachKey]) {
+        chrome.storage.local.remove(reachKey);
+        btn.textContent = "☆ Reach";
+        btn.style.cssText = buildReachButtonStyle(false);
+      } else {
+        const site = url.includes("hiring.cafe") ? "hiring-cafe" : "unknown";
+        chrome.storage.local.set({
+          [reachKey]: { jobId, title, company, url, site, timestamp: Date.now() },
+        });
+        btn.textContent = "⭐ Reach";
+        btn.style.cssText = buildReachButtonStyle(true);
+      }
+    });
+  });
+}
+
+function injectModalLoadingPanel(modal: HTMLElement, jobId: string, title: string, company: string): void {
   modal.querySelectorAll("[data-jobscout-modal-panel]").forEach((el) => el.remove());
 
   const panel = document.createElement("div");
@@ -1051,10 +1084,18 @@ function injectModalLoadingPanel(modal: HTMLElement): void {
       @keyframes jobscout-spin { to { transform: rotate(360deg); } }
     </style>
   `;
+
+  const reachBtn = document.createElement("button");
+  reachBtn.setAttribute("data-jobscout-reach-btn", "1");
+  reachBtn.style.cssText = buildReachButtonStyle(false) + "margin-left:auto;";
+  reachBtn.textContent = "☆ Reach";
+  panel.appendChild(reachBtn);
+  wireModalReachButton(reachBtn, jobId, title, company, window.location.href);
+
   modal.insertBefore(panel, modal.firstChild);
 }
 
-function updateModalPanel(result: AnalyzeResponse, jobId: string): void {
+function updateModalPanel(result: AnalyzeResponse, jobId: string, title = "", company = ""): void {
   const modal = document.querySelector<HTMLElement>(".chakra-modal__body");
   if (!modal) return;
   const panel = modal.querySelector<HTMLElement>("[data-jobscout-modal-panel]");
@@ -1105,6 +1146,12 @@ function updateModalPanel(result: AnalyzeResponse, jobId: string): void {
           padding: 2px 10px; font-size: 11px; font-weight: 600;
           cursor: pointer; white-space: nowrap;
         ">Mark Applied</button>
+        <button data-jobscout-reach-btn style="
+          background: #1e293b; color: #94a3b8;
+          border: 1px solid #334155; border-radius: 5px;
+          padding: 2px 10px; font-size: 11px; font-weight: 600;
+          cursor: pointer; white-space: nowrap;
+        ">☆ Reach</button>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 4px;">
         ${pills || `<span style="color:#475569; font-size:11px;">No flags reported</span>`}
@@ -1147,6 +1194,11 @@ function updateModalPanel(result: AnalyzeResponse, jobId: string): void {
       });
     });
   }
+
+  const reachBtn = panel.querySelector<HTMLButtonElement>("[data-jobscout-reach-btn]");
+  if (reachBtn) {
+    wireModalReachButton(reachBtn, jobId, title, company, window.location.href);
+  }
 }
 
 function initHiringCafeModalWatcher(): void {
@@ -1178,7 +1230,7 @@ function initHiringCafeModalWatcher(): void {
     lastModalJobId = currentJobId;
 
     // Inject loading panel immediately so the user sees feedback right away
-    injectModalLoadingPanel(modal);
+    injectModalLoadingPanel(modal, currentJobId, title, company);
 
     // Track the active job immediately so the popup can look it up even on cache hits
     chrome.storage.local.set({ hc_active_job_id: currentJobId });

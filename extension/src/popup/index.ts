@@ -38,6 +38,61 @@ interface StoredScore {
   dbId?: number;
 }
 
+interface ReachJob {
+  jobId: string;
+  title: string;
+  company: string;
+  url: string;
+  site: string;
+  groupId?: string;
+  timestamp: number;
+}
+
+function detectSiteFromUrl(url: string): string {
+  if (url.includes("linkedin.com")) return "linkedin";
+  if (url.includes("indeed.com")) return "indeed";
+  if (url.includes("hiring.cafe")) return "hiring-cafe";
+  return "unknown";
+}
+
+function buildReachButtonHtml(isReach: boolean): string {
+  return isReach
+    ? `<button class="btn btn-reach active" id="btn-reach" title="Remove reach tag">⭐ Reach</button>`
+    : `<button class="btn btn-reach" id="btn-reach" title="Mark as a reach role">☆ Reach</button>`;
+}
+
+function wireReachButton(jobId: string, tabUrl: string, jobTitle: string, company: string): void {
+  const btn = document.getElementById("btn-reach") as HTMLButtonElement | null;
+  if (!btn) return;
+
+  btn.addEventListener("click", () => {
+    const reachKey = `reach_jobid_${jobId}`;
+    chrome.storage.local.get(reachKey, (data) => {
+      const existing = data[reachKey] as ReachJob | undefined;
+      if (existing) {
+        chrome.storage.local.remove(reachKey);
+        btn.textContent = "☆ Reach";
+        btn.classList.remove("active");
+        btn.title = "Mark as a reach role";
+      } else {
+        const site = detectSiteFromUrl(tabUrl);
+        const reachJob: ReachJob = {
+          jobId,
+          title: jobTitle,
+          company,
+          url: tabUrl,
+          site,
+          timestamp: Date.now(),
+        };
+        chrome.storage.local.set({ [reachKey]: reachJob });
+        btn.textContent = "⭐ Reach";
+        btn.classList.add("active");
+        btn.title = "Remove reach tag";
+      }
+    });
+  });
+}
+
 function getScoreColor(score: number): string {
   if (score >= 80) return "#4ade80";
   if (score >= 60) return "#facc15";
@@ -217,6 +272,7 @@ function renderScore(
   tabUrl: string,
   isApplied: boolean,
   jobId: string,
+  isReach = false,
 ): void {
   const { result, jobTitle, company, timestamp, salary, easyApply, jobAge } =
     stored;
@@ -325,6 +381,7 @@ function renderScore(
       <button class="btn btn-applied ${isApplied ? "done" : ""}" id="btn-applied" data-job-id="${jobId}">
         ${isApplied ? "✓ Applied" : "Mark Applied"}
       </button>
+      ${buildReachButtonHtml(isReach)}
     </div>
     ${buildBulkBarHtml(tabUrl)}
     ${buildSection("Direct matches", "#4ade80", result.direct_matches.length, directMatchesHtml, true)}
@@ -337,7 +394,7 @@ function renderScore(
   const content = document.getElementById("content");
   if (content) {
     content.innerHTML = html;
-    attachActionListeners(tabUrl, jobId);
+    attachActionListeners(tabUrl, jobId, jobTitle, company);
 
     // Wire section toggles — inline onclick blocked by CSP in MV3
     content.querySelectorAll(".section-header").forEach((header) => {
@@ -349,6 +406,13 @@ function renderScore(
       });
     });
   }
+}
+
+function showScore(stored: StoredScore, tabUrl: string, isApplied: boolean, jobId: string): void {
+  chrome.storage.local.get(`reach_jobid_${jobId}`, (data) => {
+    const isReach = !!data[`reach_jobid_${jobId}`];
+    renderScore(stored, tabUrl, isApplied, jobId, isReach);
+  });
 }
 
 function attachBulkListeners(tabId: number): void {
@@ -452,7 +516,7 @@ function attachBulkListeners(tabId: number): void {
   }
 }
 
-function attachActionListeners(tabUrl: string, jobId: string): void {
+function attachActionListeners(tabUrl: string, jobId: string, jobTitle = "", company = ""): void {
   // Wire up bulk listeners if on hiring.cafe
   if (tabUrl.includes("hiring.cafe")) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -487,7 +551,7 @@ function attachActionListeners(tabUrl: string, jobId: string): void {
               clearInterval(poll);
               chrome.storage.local.get(`applied_${jobId}`, (appliedData) => {
                 const isApplied = !!appliedData[`applied_${jobId}`];
-                renderScore(stored, tabUrl, isApplied, jobId);
+                showScore(stored, tabUrl, isApplied, jobId);
               });
             }
           });
@@ -515,6 +579,8 @@ function attachActionListeners(tabUrl: string, jobId: string): void {
       );
     });
   }
+
+  wireReachButton(jobId, tabUrl, jobTitle, company);
 }
 
 (
@@ -607,7 +673,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           const activeKey = `score_jobid_${activeJobId}`;
           const activeStored = allData[activeKey] as StoredScore | undefined;
           if (activeStored?.result) {
-            renderScore(activeStored, tab.url!, false, activeJobId);
+            showScore(activeStored, tab.url!, false, activeJobId);
             return;
           }
           // Active job is known but not yet scored — check if analysis is running
@@ -635,7 +701,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           if (hcEntries.length > 0) {
             const { key, stored } = hcEntries[0];
             const hcJobId = key.replace("score_jobid_", "");
-            renderScore(stored, tab.url!, false, hcJobId);
+            showScore(stored, tab.url!, false, hcJobId);
           } else {
             renderError("Bulk queue active. Open job cards to score them.");
           }
@@ -676,7 +742,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (stored) {
       chrome.storage.local.get(`applied_${urlJobId}`, (appliedData) => {
         const isApplied = !!appliedData[`applied_${urlJobId}`];
-        renderScore(stored, tab.url!, isApplied, urlJobId);
+        showScore(stored, tab.url!, isApplied, urlJobId);
       });
       return;
     }
@@ -704,7 +770,7 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
           };
 
           chrome.storage.local.set({ [cacheKey]: reconstructed });
-          renderScore(reconstructed, tab.url!, false, urlJobId);
+          showScore(reconstructed, tab.url!, false, urlJobId);
         } else {
           renderLoading();
         }

@@ -1013,6 +1013,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.getElementById(`tab-${tab}`)?.classList.add("active");
     if (tab === "filters") renderFilters();
     if (tab === "account") loadAccountTab();
+    if (tab === "reach") renderReachTab();
     if (tab === "history") {
       renderTable();
       updateCount();
@@ -1301,6 +1302,401 @@ document.getElementById("btn-logout")?.addEventListener("click", () => {
     chrome.runtime.sendMessage({ type: "LOGOUT" });
     window.close();
   });
+});
+
+// ── Reach tab ───────────────────────────────────────────────────────────────
+
+interface ReachJob {
+  jobId: string;
+  title: string;
+  company: string;
+  url: string;
+  site: string;
+  skills?: string[];
+  description?: string;
+  groupId?: string;
+  timestamp: number;
+}
+
+interface ReachGroup {
+  name: string;
+}
+
+interface ReachAnalysis {
+  group_name: string;
+  skill_themes: { skill: string; frequency: number; detail: string }[];
+  experience_gaps: { gap: string; detail: string }[];
+  actionable_steps: { step: string; detail: string }[];
+  summary: string;
+}
+
+// In-memory state for the reach tab
+let reachJobs: ReachJob[] = [];
+let reachGroups: Record<string, ReachGroup> = {};
+let reachAnalyses: Record<string, ReachAnalysis> = {};
+
+function loadReachData(cb: () => void): void {
+  chrome.storage.local.get(null, (data) => {
+    reachJobs = Object.entries(data)
+      .filter(([k]) => k.startsWith("reach_jobid_"))
+      .map(([, v]) => v as ReachJob)
+      .sort((a, b) => b.timestamp - a.timestamp);
+
+    reachGroups = (data["reach_groups"] as Record<string, ReachGroup>) ?? {};
+    cb();
+  });
+}
+
+function saveReachGroups(): void {
+  chrome.storage.local.set({ reach_groups: reachGroups });
+}
+
+function saveReachJob(job: ReachJob): void {
+  chrome.storage.local.set({ [`reach_jobid_${job.jobId}`]: job });
+}
+
+function promptNewGroup(): string | null {
+  const name = window.prompt("Group name:");
+  return name?.trim() || null;
+}
+
+function renderReachTab(): void {
+  loadReachData(() => {
+    const content = document.getElementById("reach-content");
+    const countEl = document.getElementById("reach-count");
+    if (!content) return;
+
+    if (countEl) {
+      countEl.textContent = reachJobs.length === 1 ? "1 job" : `${reachJobs.length} jobs`;
+    }
+
+    if (reachJobs.length === 0) {
+      content.innerHTML = `
+        <div class="reach-empty">
+          <div class="big">⭐</div>
+          No reach jobs yet. Mark jobs as reach from the popup or Hiring.cafe modal.
+        </div>
+      `;
+      return;
+    }
+
+    content.innerHTML = "";
+
+    // Collect group IDs present in reach jobs (maintaining order by first appearance)
+    const groupOrder: string[] = [];
+    const jobsByGroup: Record<string, ReachJob[]> = { __ungrouped__: [] };
+
+    reachJobs.forEach((job) => {
+      if (job.groupId && reachGroups[job.groupId]) {
+        if (!jobsByGroup[job.groupId]) {
+          jobsByGroup[job.groupId] = [];
+          groupOrder.push(job.groupId);
+        }
+        jobsByGroup[job.groupId].push(job);
+      } else {
+        jobsByGroup["__ungrouped__"].push(job);
+      }
+    });
+
+    // Build group selector options
+    const groupOptions = Object.entries(reachGroups)
+      .map(([id, g]) => `<option value="${id}">${g.name}</option>`)
+      .join("");
+    const selectOptions = `<option value="">— ungrouped —</option>${groupOptions}`;
+
+    // Render named groups
+    groupOrder.forEach((groupId) => {
+      const group = reachGroups[groupId];
+      const jobs = jobsByGroup[groupId];
+      const analysis = reachAnalyses[groupId];
+      content.appendChild(buildGroupSection(groupId, group.name, jobs, selectOptions, analysis));
+    });
+
+    // Render ungrouped
+    if (jobsByGroup["__ungrouped__"].length > 0) {
+      const ungroupedSection = document.createElement("div");
+      ungroupedSection.className = "reach-group";
+      ungroupedSection.innerHTML = `
+        <div class="reach-ungrouped-header">
+          <span>Ungrouped (${jobsByGroup["__ungrouped__"].length})</span>
+        </div>
+      `;
+      jobsByGroup["__ungrouped__"].forEach((job) => {
+        ungroupedSection.appendChild(buildJobRow(job, selectOptions));
+      });
+      content.appendChild(ungroupedSection);
+    }
+
+    wireReachTabButtons();
+  });
+}
+
+function buildGroupSection(
+  groupId: string,
+  groupName: string,
+  jobs: ReachJob[],
+  selectOptions: string,
+  analysis?: ReachAnalysis,
+): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "reach-group";
+  section.setAttribute("data-group-id", groupId);
+
+  section.innerHTML = `
+    <div class="reach-group-header">
+      <span class="reach-group-name">${groupName}</span>
+      <span class="reach-group-count">${jobs.length} job${jobs.length !== 1 ? "s" : ""}</span>
+      <button class="btn-analyze-group" data-group-id="${groupId}" data-group-name="${groupName}">
+        ⚡ Analyze
+      </button>
+    </div>
+  `;
+
+  jobs.forEach((job) => {
+    section.appendChild(buildJobRow(job, selectOptions));
+  });
+
+  if (analysis) {
+    section.appendChild(buildAnalysisBlock(analysis));
+  }
+
+  return section;
+}
+
+function buildJobRow(job: ReachJob, selectOptions: string): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "reach-job-row";
+  row.setAttribute("data-job-id", job.jobId);
+
+  const siteLabel = job.site === "linkedin" ? "LinkedIn"
+    : job.site === "indeed" ? "Indeed"
+    : job.site === "hiring-cafe" ? "Hiring.cafe"
+    : job.site;
+
+  row.innerHTML = `
+    <div class="reach-job-info">
+      <div class="reach-job-title" title="${job.title} — ${job.company}">
+        ${job.url
+          ? `<a href="${job.url}" target="_blank" style="color:#e2e8f0;text-decoration:none;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#e2e8f0'">${job.title}</a>`
+          : job.title}
+      </div>
+      <div class="reach-job-company">${job.company} · <span style="color:#475569">${siteLabel}</span></div>
+    </div>
+    <select class="reach-group-select" data-job-id="${job.jobId}">
+      ${selectOptions.replace(`value="${job.groupId ?? ""}"`, `value="${job.groupId ?? ""}" selected`)}
+    </select>
+    <button class="btn-unreach" data-job-id="${job.jobId}" title="Remove reach tag">✕</button>
+  `;
+
+  return row;
+}
+
+function buildAnalysisBlock(analysis: ReachAnalysis): HTMLElement {
+  const block = document.createElement("div");
+  block.className = "reach-analysis";
+
+  const skillsHtml = analysis.skill_themes.map((s) => `
+    <li>
+      <strong>${s.skill} <span class="reach-skill-freq">${s.frequency}×</span></strong>
+      ${s.detail}
+    </li>
+  `).join("");
+
+  const gapsHtml = analysis.experience_gaps.map((g) => `
+    <li><strong>${g.gap}</strong>${g.detail}</li>
+  `).join("");
+
+  const stepsHtml = analysis.actionable_steps.map((a) => `
+    <li><strong>${a.step}</strong>${a.detail}</li>
+  `).join("");
+
+  block.innerHTML = `
+    <div class="reach-analysis-summary">${analysis.summary}</div>
+    <div class="reach-analysis-grid">
+      <div class="reach-analysis-section">
+        <h4>Skill Themes</h4>
+        <ul>${skillsHtml}</ul>
+      </div>
+      <div class="reach-analysis-section">
+        <h4>Experience Gaps</h4>
+        <ul>${gapsHtml}</ul>
+      </div>
+      <div class="reach-analysis-section">
+        <h4>Actionable Steps</h4>
+        <ul>${stepsHtml}</ul>
+      </div>
+    </div>
+  `;
+
+  return block;
+}
+
+function wireReachTabButtons(): void {
+  const content = document.getElementById("reach-content");
+  if (!content) return;
+
+  // Group assignment dropdowns
+  content.querySelectorAll<HTMLSelectElement>(".reach-group-select").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      const jobId = sel.getAttribute("data-job-id")!;
+      const job = reachJobs.find((j) => j.jobId === jobId);
+      if (!job) return;
+      const newGroupId = sel.value || undefined;
+      job.groupId = newGroupId;
+      saveReachJob(job);
+      renderReachTab();
+    });
+  });
+
+  // Unreach buttons
+  content.querySelectorAll<HTMLButtonElement>(".btn-unreach").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const jobId = btn.getAttribute("data-job-id")!;
+      chrome.storage.local.remove(`reach_jobid_${jobId}`, () => renderReachTab());
+    });
+  });
+
+  // Analyze group buttons
+  content.querySelectorAll<HTMLButtonElement>(".btn-analyze-group").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const groupId = btn.getAttribute("data-group-id")!;
+      const groupName = btn.getAttribute("data-group-name")!;
+      const jobs = reachJobs.filter((j) => j.groupId === groupId);
+
+      btn.disabled = true;
+      btn.textContent = "Analyzing…";
+
+      // Replace any existing analysis block with a loading indicator
+      const section = btn.closest(".reach-group")!;
+      let existingAnalysis = section.querySelector(".reach-analysis");
+      if (existingAnalysis) existingAnalysis.remove();
+
+      const loadingEl = document.createElement("div");
+      loadingEl.className = "reach-analysis";
+      loadingEl.innerHTML = `
+        <div class="reach-analysis-loading">
+          <div class="reach-analysis-spinner"></div>
+          Analyzing ${jobs.length} job${jobs.length !== 1 ? "s" : ""} in "${groupName}"…
+        </div>
+      `;
+      section.appendChild(loadingEl);
+
+      try {
+        const token = await new Promise<string | null>((res) =>
+          chrome.storage.local.get("auth_jwt", (d) => res((d.auth_jwt as string) ?? null)),
+        );
+        if (!token) throw new Error("Not signed in");
+
+        const payload = {
+          group_name: groupName,
+          jobs: jobs.map((j) => ({
+            job_id: j.jobId,
+            title: j.title,
+            company: j.company,
+            url: j.url,
+            site: j.site,
+            skills: j.skills,
+            description: j.description,
+          })),
+        };
+
+        const r = await fetch(`${process.env.BACKEND_URL}/reach/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({ detail: "Unknown error" }));
+          throw new Error(err.detail || `HTTP ${r.status}`);
+        }
+
+        const analysis: ReachAnalysis = await r.json();
+        reachAnalyses[groupId] = analysis;
+
+        loadingEl.remove();
+        section.appendChild(buildAnalysisBlock(analysis));
+      } catch (err) {
+        loadingEl.innerHTML = `<div style="color:#f87171;font-size:12px;padding:8px 0;">Analysis failed: ${(err as Error).message}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "⚡ Analyze";
+      }
+    });
+  });
+}
+
+// Auto-group button
+document.getElementById("btn-autogroup")?.addEventListener("click", async () => {
+  const btn = document.getElementById("btn-autogroup") as HTMLButtonElement;
+  if (reachJobs.length < 2) {
+    alert("Add at least 2 reach jobs before auto-grouping.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Grouping…";
+
+  try {
+    const token = await new Promise<string | null>((res) =>
+      chrome.storage.local.get("auth_jwt", (d) => res((d.auth_jwt as string) ?? null)),
+    );
+    if (!token) throw new Error("Not signed in");
+
+    const payload = {
+      jobs: reachJobs.map((j) => ({
+        job_id: j.jobId,
+        title: j.title,
+        company: j.company,
+        url: j.url,
+        site: j.site,
+        skills: j.skills,
+      })),
+    };
+
+    const r = await fetch(`${process.env.BACKEND_URL}/reach/cluster`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ detail: "Unknown error" }));
+      throw new Error(err.detail || `HTTP ${r.status}`);
+    }
+
+    const result: { groups: { job_id: string; group_name: string; group_id: string }[] } = await r.json();
+
+    // Build/merge groups from result
+    result.groups.forEach(({ job_id, group_name, group_id }) => {
+      if (!reachGroups[group_id]) {
+        reachGroups[group_id] = { name: group_name };
+      }
+      const job = reachJobs.find((j) => j.jobId === job_id);
+      if (job) {
+        job.groupId = group_id;
+        saveReachJob(job);
+      }
+    });
+    saveReachGroups();
+    renderReachTab();
+  } catch (err) {
+    alert(`Auto-group failed: ${(err as Error).message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "✦ Auto-group";
+  }
+});
+
+// New group button
+document.getElementById("btn-new-group")?.addEventListener("click", () => {
+  const name = promptNewGroup();
+  if (!name) return;
+  const id = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  if (!id) return;
+  reachGroups[id] = { name };
+  saveReachGroups();
+  renderReachTab();
 });
 
 // Load data
