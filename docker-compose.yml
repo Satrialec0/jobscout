@@ -13,6 +13,15 @@ services:
     depends_on:
       - db
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: jobscout_tunnel
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - backend
+
   db:
     image: postgres:16
     container_name: jobscout_db
