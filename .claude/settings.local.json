@@ -21,7 +21,15 @@
       "Bash(alembic revision:*)",
       "Bash(python -c \"from app.api.analyze import router; print\\(''API imports OK''\\)\")",
       "Bash(find /c/Users/Christopher Satriale/Projects/jobscout -name *.py -type f)",
+<<<<<<< HEAD
       "Bash(python -c \"from app.api.reach import router; from app.services.reach import cluster_reach_jobs, analyze_reach_group; from app.schemas.reach import ClusterRequest, ReachAnalyzeRequest; print\\(''OK''\\)\")"
+=======
+      "Bash(python -c \"from app.api.reach import router; from app.services.reach import cluster_reach_jobs, analyze_reach_group; from app.schemas.reach import ClusterRequest, ReachAnalyzeRequest; print\\(''OK''\\)\")",
+      "Bash(pip --version)",
+      "Bash(where python:*)",
+      "Bash(py --version)",
+      "Bash(py -c \"import sys; print\\(sys.executable\\)\")"
+>>>>>>> f452269dc192600974a843a292027ce8037aed95
     ]
   }
 }
