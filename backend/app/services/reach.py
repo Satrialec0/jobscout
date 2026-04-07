@@ -15,10 +15,13 @@ from app.schemas.reach import (
 
 logger = logging.getLogger(__name__)
 
-CANDIDATE_CONTEXT = """The candidate is Christopher, a Project Design Engineer at Hanwha Qcells USA Corp
-with a background in electrical systems design, solar/BESS project development, Python/data engineering,
-and cross-functional project coordination. He is targeting adjacent roles such as Solutions Engineer,
-Technical Project Manager, Product Manager, or clean energy/energy tech roles."""
+def _candidate_context(resume_text: str, instructions: str) -> str:
+    resume_section = resume_text.strip() if resume_text and resume_text.strip() else "No resume provided."
+    return f"""CANDIDATE RESUME:
+{resume_section}
+
+ANALYSIS INSTRUCTIONS:
+{instructions}"""
 
 
 def _strip_markdown(text: str) -> str:
@@ -29,7 +32,12 @@ def _strip_markdown(text: str) -> str:
     return cleaned.strip()
 
 
-def cluster_reach_jobs(jobs: list[ReachJobInput], api_key: str) -> ClusterResponse:
+def cluster_reach_jobs(
+    jobs: list[ReachJobInput],
+    api_key: str,
+    resume_text: str = "",
+    instructions: str = "",
+) -> ClusterResponse:
     """Use Claude to suggest group assignments for a list of reach jobs."""
     logger.info("Clustering %d reach jobs", len(jobs))
 
@@ -39,7 +47,7 @@ def cluster_reach_jobs(jobs: list[ReachJobInput], api_key: str) -> ClusterRespon
         for j in jobs
     )
 
-    prompt = f"""{CANDIDATE_CONTEXT}
+    prompt = f"""{_candidate_context(resume_text, instructions)}
 
 The candidate has marked the following jobs as "reach" roles — positions slightly above their current level that they aspire to grow into.
 
@@ -88,7 +96,11 @@ Rules:
 
 
 def analyze_reach_group(
-    group_name: str, jobs: list[ReachJobInput], api_key: str
+    group_name: str,
+    jobs: list[ReachJobInput],
+    api_key: str,
+    resume_text: str = "",
+    instructions: str = "",
 ) -> ReachAnalyzeResponse:
     """Use Claude to produce structured gap analysis for a group of reach jobs."""
     logger.info("Analyzing reach group '%s' with %d jobs", group_name, len(jobs))
@@ -110,7 +122,7 @@ def analyze_reach_group(
 
     jobs_text = "\n\n".join(f"Job {i+1}:\n{d}" for i, d in enumerate(job_details))
 
-    prompt = f"""{CANDIDATE_CONTEXT}
+    prompt = f"""{_candidate_context(resume_text, instructions)}
 
 The candidate has marked the following "{group_name}" roles as aspirational "reach" jobs — positions above their current level that they want to grow toward.
 
