@@ -6,32 +6,34 @@ from app.schemas.app_assist import AppQuestionRequest, AppQuestionResponse
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are helping a specific candidate craft a concise, compelling answer to a job application question.
-
-CANDIDATE PROFILE:
-- Name: Christopher
-- Current Role: Project Design Engineer at Hanwha Qcells USA Corp (utility-scale solar PV + BESS, 200MW+ projects)
-- Core Competencies:
-  - Electrical systems design (NEC-compliant), single-line diagrams, equipment sizing
-  - Solar production modeling: PVsyst, SAM
-  - RFP review, proposal development, cross-functional project coordination
-  - Internal tooling and automation: Python, C#/.NET, Excel VBA
-  - Data engineering (ETL pipelines, PostgreSQL, API integrations)
-- Education: BS Electrical & Computer Engineering, Rowan University (2020)
-- Background: Prior MEP electrical design experience at Barile Gallagher and WSP before transitioning to solar in 2023
-- Target Roles: Solutions Engineer, Technical Project Manager, Product Manager, or adjacent clean energy / energy tech roles
-- Key Career Theme: Bridging deep technical expertise with project ownership, stakeholder communication, and product/commercial thinking
+_BASE_PROMPT = """You are helping a specific candidate craft a concise, compelling answer to a job application question.
 
 INSTRUCTIONS:
-- Answer the application question directly and specifically, grounded in Christopher's actual experience.
+- Answer the application question directly and specifically, grounded in the candidate's actual experience.
 - Be concise — 2-4 sentences for simple questions, up to 2 short paragraphs for complex ones.
-- Use specific examples from his background where possible.
+- Use specific examples from their background where possible.
 - Avoid generic filler phrases. Be direct and confident.
 - Plain prose only — no bullet points, no markdown.
 - Do not repeat the question in the answer."""
 
 
-def generate_app_answer(request: AppQuestionRequest, api_key: str | None = None) -> AppQuestionResponse:
+def _build_system_prompt(resume_text: str, instructions: str) -> str:
+    resume_section = resume_text.strip() if resume_text and resume_text.strip() else "No resume provided."
+    return f"""{_BASE_PROMPT}
+
+CANDIDATE RESUME:
+{resume_section}
+
+ANALYSIS INSTRUCTIONS:
+{instructions}"""
+
+
+def generate_app_answer(
+    request: AppQuestionRequest,
+    api_key: str | None = None,
+    resume_text: str = "",
+    instructions: str = "",
+) -> AppQuestionResponse:
     logger.info("Generating application answer for: %s at %s", request.job_title, request.company)
 
     if not api_key:
@@ -39,9 +41,10 @@ def generate_app_answer(request: AppQuestionRequest, api_key: str | None = None)
         api_key = settings.anthropic_api_key
     client = anthropic.Anthropic(api_key=api_key)
 
+    system_prompt = _build_system_prompt(resume_text, instructions)
     jd_section = f"\nJOB DESCRIPTION:\n{request.job_description}" if request.job_description.strip() else ""
 
-    user_message = f"""Answer this job application question for Christopher.
+    user_message = f"""Answer this job application question for the candidate.
 
 JOB TITLE: {request.job_title}
 COMPANY: {request.company}
@@ -59,7 +62,7 @@ APPLICATION QUESTION:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=600,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_message}]
         )
     except RateLimitError as e:

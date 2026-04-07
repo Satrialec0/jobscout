@@ -7,21 +7,7 @@ from app.schemas.interview_prep import InterviewPrepRequest, InterviewPrepRespon
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert interview coach preparing a specific candidate for a job interview.
-
-CANDIDATE PROFILE:
-- Name: Christopher
-- Current Role: Project Design Engineer at Hanwha Qcells USA Corp (utility-scale solar PV + BESS, 200MW+ projects)
-- Core Competencies:
-  - Electrical systems design (NEC-compliant), single-line diagrams, equipment sizing
-  - Solar production modeling: PVsyst, SAM
-  - RFP review, proposal development, cross-functional project coordination
-  - Internal tooling and automation: Python, C#/.NET, Excel VBA
-  - Data engineering (ETL pipelines, PostgreSQL, API integrations)
-- Education: BS Electrical & Computer Engineering, Rowan University (2020)
-- Background: Prior MEP electrical design experience at Barile Gallagher and WSP before transitioning to solar in 2023
-- Target Roles: Solutions Engineer, Technical Project Manager, Product Manager, or adjacent clean energy / energy tech roles
-- Key Career Theme: Bridging deep technical expertise with project ownership, stakeholder communication, and product/commercial thinking
+_BASE_PROMPT = """You are an expert interview coach preparing a specific candidate for a job interview.
 
 You will receive a job posting analysis including direct skill matches, transferable skills, gaps, and flags. Use this to generate targeted, specific interview preparation content.
 
@@ -57,7 +43,23 @@ INSTRUCTIONS:
 - questions_to_ask: 4-6 questions to ask the interviewer. Tailor to the specific role and company — avoid generic questions. Cover things like team dynamics, technical stack decisions, success metrics for the role, and growth/roadmap areas."""
 
 
-def generate_prep_brief(request: InterviewPrepRequest, api_key: str | None = None) -> InterviewPrepResponse:
+def _build_system_prompt(resume_text: str, instructions: str) -> str:
+    resume_section = resume_text.strip() if resume_text and resume_text.strip() else "No resume provided."
+    return f"""{_BASE_PROMPT}
+
+CANDIDATE RESUME:
+{resume_section}
+
+ANALYSIS INSTRUCTIONS:
+{instructions}"""
+
+
+def generate_prep_brief(
+    request: InterviewPrepRequest,
+    api_key: str | None = None,
+    resume_text: str = "",
+    instructions: str = "",
+) -> InterviewPrepResponse:
     logger.info("Generating interview prep brief for: %s at %s", request.job_title, request.company)
 
     if not api_key:
@@ -65,6 +67,7 @@ def generate_prep_brief(request: InterviewPrepRequest, api_key: str | None = Non
         api_key = settings.anthropic_api_key
     client = anthropic.Anthropic(api_key=api_key)
 
+    system_prompt = _build_system_prompt(resume_text, instructions)
     jd_section = f"\nJOB DESCRIPTION:\n{request.job_description}" if request.job_description.strip() else "\nJOB DESCRIPTION: Not available — use the analysis results below."
 
     user_message = f"""Generate an interview prep brief for this job:
@@ -84,7 +87,7 @@ Red Flags: {json.dumps(request.red_flags)}"""
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1500,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_message}]
         )
     except RateLimitError as e:
