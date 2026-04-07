@@ -8,21 +8,7 @@ from app.schemas.analyze import AnalyzeResponse, ScoreCategory, SalaryEstimate
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are an expert job application strategist analyzing job fit for a specific candidate.
-
-CANDIDATE PROFILE:
-- Name: Christopher
-- Current Role: Project Design Engineer at Hanwha Qcells USA Corp (utility-scale solar PV + BESS, 200MW+ projects)
-- Core Competencies:
-  - Electrical systems design (NEC-compliant), single-line diagrams, equipment sizing
-  - Solar production modeling: PVsyst, SAM
-  - RFP review, proposal development, cross-functional project coordination
-  - Internal tooling and automation: Python, C#/.NET, Excel VBA
-  - Data engineering (ETL pipelines, PostgreSQL, API integrations)
-- Education: BS Electrical & Computer Engineering, Rowan University (2020)
-- Background: Prior MEP electrical design experience at Barile Gallagher and WSP before transitioning to solar in 2023
-- Target Roles: Solutions Engineer, Technical Project Manager, Product Manager, or adjacent clean energy / energy tech roles
-- Key Career Theme: Bridging deep technical expertise with project ownership, stakeholder communication, and product/commercial thinking
+_BASE_PROMPT = """You are an expert job application strategist analyzing job fit for a specific candidate.
 
 SCORING INSTRUCTIONS:
 Analyze the job description and return ONLY a valid JSON object with no markdown, no code blocks, no explanation.
@@ -68,6 +54,17 @@ SCORING RUBRIC:
 - Below 40: Significant gaps, not recommended
 
 Be honest about gaps. Do not oversell. Flag real mismatches."""
+
+
+def _build_system_prompt(resume_text: str, instructions: str) -> str:
+    resume_section = resume_text.strip() if resume_text and resume_text.strip() else "No resume provided."
+    return f"""{_BASE_PROMPT}
+
+CANDIDATE RESUME:
+{resume_section}
+
+ANALYSIS INSTRUCTIONS:
+{instructions}"""
 
 
 def _strip_markdown(text: str) -> str:
@@ -126,6 +123,8 @@ def analyze_job(
     job_description: str,
     listed_salary: str | None = None,
     api_key: str | None = None,
+    resume_text: str = "",
+    instructions: str = "",
 ) -> AnalyzeResponse:
     logger.info("Starting analysis: %s at %s", job_title, company)
 
@@ -134,6 +133,7 @@ def analyze_job(
         api_key = settings.anthropic_api_key
     client = anthropic.Anthropic(api_key=api_key)
 
+    system_prompt = _build_system_prompt(resume_text, instructions)
     salary_context = f"\nLISTED SALARY: {listed_salary}" if listed_salary else "\nLISTED SALARY: Not provided"
 
     user_message = f"""Please analyze this job posting for fit:
@@ -148,7 +148,7 @@ JOB DESCRIPTION:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1500,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=[{"role": "user", "content": user_message}]
         )
     except RateLimitError as e:
