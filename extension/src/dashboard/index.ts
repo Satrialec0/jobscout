@@ -105,10 +105,26 @@ const STATUS_CONFIG: Record<
   },
 };
 
+interface UserProfile {
+  id: number;
+  name: string;
+  resume_text: string | null;
+  instructions: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+const DEFAULT_INSTRUCTIONS =
+  "Analyze this job for overall fit based on my resume. " +
+  "Highlight skill gaps and strengths, and flag any responsibilities " +
+  "or requirements I should pay special attention to.";
+
 let allJobs: DashboardJob[] = [];
 let sortCol = "date";
 let sortAsc = false;
 let expandedJobId: string | null = null;
+let profiles: UserProfile[] = [];
+let editingProfileId: number | null = null;
 
 function detectSite(jobId: string): string {
   if (jobId.startsWith("hc_")) return "hiring-cafe";
@@ -1203,6 +1219,251 @@ async function loadAccountTab(): Promise<void> {
     // ignore
   }
 }
+
+// ── Profile API helpers ──────────────────────────────────────────────────────
+
+async function fetchProfiles(): Promise<UserProfile[]> {
+  const token = await getToken();
+  if (!token) return [];
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/profiles`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return [];
+    return r.json();
+  } catch {
+    return [];
+  }
+}
+
+async function createProfile(name: string, resumeText: string, instructions: string): Promise<UserProfile> {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name, resume_text: resumeText || null, instructions }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? "Failed to create profile");
+  return r.json();
+}
+
+async function updateProfile(id: number, name: string, resumeText: string, instructions: string): Promise<UserProfile> {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name, resume_text: resumeText || null, instructions }),
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? "Failed to update profile");
+  return r.json();
+}
+
+async function deleteProfileById(id: number): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) throw new Error("Failed to delete profile");
+}
+
+async function activateProfileById(id: number): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles/${id}/activate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) throw new Error("Failed to activate profile");
+}
+
+async function parseResumeFile(file: File): Promise<string> {
+  const token = await getToken();
+  if (!token) throw new Error("Not authenticated");
+  const form = new FormData();
+  form.append("file", file);
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles/parse-resume`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!r.ok) throw new Error((await r.json()).detail ?? "Failed to parse resume");
+  const data: { text: string } = await r.json();
+  return data.text;
+}
+
+// ── Profile UI ───────────────────────────────────────────────────────────────
+
+function renderProfiles(): void {
+  const list = document.getElementById("profiles-list");
+  const label = document.getElementById("active-profile-label");
+  if (!list) return;
+
+  const active = profiles.find((p) => p.is_active);
+  if (label) label.textContent = active ? `— ${active.name}` : "";
+
+  if (profiles.length === 0) {
+    list.innerHTML = `<div style="color:#64748b;font-size:13px;padding:12px 0">No profiles yet. Create one to start analyzing jobs.</div>`;
+    return;
+  }
+
+  list.innerHTML = profiles
+    .map(
+      (p) => `
+    <div class="profile-card${p.is_active ? " is-active" : ""}" data-id="${p.id}">
+      <div class="profile-card-left">
+        <span class="profile-card-name">${p.name}</span>
+        ${p.is_active ? '<span class="active-badge">Active</span>' : ""}
+      </div>
+      <div class="profile-card-actions">
+        ${!p.is_active ? `<button class="btn-profile-action activate" data-action="activate" data-id="${p.id}">Set Active</button>` : ""}
+        <button class="btn-profile-action" data-action="edit" data-id="${p.id}">Edit</button>
+        <button class="btn-profile-action delete" data-action="delete" data-id="${p.id}">Delete</button>
+      </div>
+    </div>`
+    )
+    .join("");
+}
+
+function openProfileEditor(profile?: UserProfile): void {
+  editingProfileId = profile?.id ?? null;
+  const editor = document.getElementById("profile-editor");
+  const nameInput = document.getElementById("profile-name-input") as HTMLInputElement;
+  const resumeText = document.getElementById("profile-resume-text") as HTMLTextAreaElement;
+  const instructions = document.getElementById("profile-instructions") as HTMLTextAreaElement;
+  const status = document.getElementById("resume-parse-status");
+  const msg = document.getElementById("profile-editor-msg");
+
+  if (!editor || !nameInput || !resumeText || !instructions) return;
+
+  nameInput.value = profile?.name ?? "";
+  resumeText.value = profile?.resume_text ?? "";
+  instructions.value = profile?.instructions ?? DEFAULT_INSTRUCTIONS;
+  if (status) status.textContent = "";
+  if (msg) { msg.textContent = ""; msg.className = "account-msg"; }
+
+  editor.style.display = "block";
+  nameInput.focus();
+}
+
+function closeProfileEditor(): void {
+  const editor = document.getElementById("profile-editor");
+  if (editor) editor.style.display = "none";
+  editingProfileId = null;
+}
+
+async function loadProfilesPanel(): Promise<void> {
+  profiles = await fetchProfiles();
+  renderProfiles();
+}
+
+// ── Account sidebar navigation ───────────────────────────────────────────────
+
+document.querySelectorAll<HTMLButtonElement>(".account-nav-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".account-nav-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".account-panel").forEach((p) => p.classList.remove("active"));
+    btn.classList.add("active");
+    const panelId = `panel-${btn.dataset.panel}`;
+    document.getElementById(panelId)?.classList.add("active");
+    if (btn.dataset.panel === "profiles") loadProfilesPanel();
+  });
+});
+
+// New profile button
+document.getElementById("btn-new-profile")?.addEventListener("click", () => openProfileEditor());
+
+// Profile list — event delegation for activate / edit / delete
+document.getElementById("profiles-list")?.addEventListener("click", async (e) => {
+  const target = e.target as HTMLElement;
+  const btn = target.closest<HTMLButtonElement>("[data-action]");
+  if (!btn) return;
+  const id = Number(btn.dataset.id);
+  const action = btn.dataset.action;
+
+  if (action === "activate") {
+    try {
+      await activateProfileById(id);
+      profiles = await fetchProfiles();
+      renderProfiles();
+    } catch (err) {
+      console.error("Activate failed:", err);
+    }
+  } else if (action === "edit") {
+    const profile = profiles.find((p) => p.id === id);
+    if (profile) openProfileEditor(profile);
+  } else if (action === "delete") {
+    const name = profiles.find((p) => p.id === id)?.name ?? "this profile";
+    if (!confirm(`Delete profile "${name}"?`)) return;
+    try {
+      await deleteProfileById(id);
+      profiles = profiles.filter((p) => p.id !== id);
+      renderProfiles();
+      closeProfileEditor();
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
+  }
+});
+
+// Resume upload button
+document.getElementById("btn-upload-resume")?.addEventListener("click", () => {
+  document.getElementById("profile-resume-file")?.click();
+});
+
+document.getElementById("profile-resume-file")?.addEventListener("change", async (e) => {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) return;
+  const status = document.getElementById("resume-parse-status");
+  const resumeText = document.getElementById("profile-resume-text") as HTMLTextAreaElement;
+  if (status) status.textContent = "Extracting text…";
+  try {
+    const text = await parseResumeFile(file);
+    if (resumeText) resumeText.value = text;
+    if (status) status.textContent = "Text extracted — review and edit below.";
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Upload failed";
+    if (status) status.textContent = msg;
+  }
+  input.value = "";
+});
+
+// Save profile editor
+document.getElementById("btn-save-profile-edit")?.addEventListener("click", async () => {
+  const nameInput = document.getElementById("profile-name-input") as HTMLInputElement;
+  const resumeText = document.getElementById("profile-resume-text") as HTMLTextAreaElement;
+  const instructions = document.getElementById("profile-instructions") as HTMLTextAreaElement;
+  const msg = document.getElementById("profile-editor-msg");
+
+  const name = nameInput?.value.trim();
+  if (!name) {
+    if (msg) { msg.textContent = "Profile name is required."; msg.className = "account-msg error"; }
+    return;
+  }
+
+  try {
+    if (editingProfileId !== null) {
+      await updateProfile(editingProfileId, name, resumeText?.value ?? "", instructions?.value ?? DEFAULT_INSTRUCTIONS);
+    } else {
+      await createProfile(name, resumeText?.value ?? "", instructions?.value ?? DEFAULT_INSTRUCTIONS);
+    }
+    profiles = await fetchProfiles();
+    renderProfiles();
+    closeProfileEditor();
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : "Save failed";
+    if (msg) { msg.textContent = errMsg; msg.className = "account-msg error"; }
+  }
+});
+
+// Cancel profile editor
+document.getElementById("btn-cancel-profile-edit")?.addEventListener("click", closeProfileEditor);
+
+// ── Account Details save handlers ────────────────────────────────────────────
 
 document.getElementById("btn-save-profile")?.addEventListener("click", async () => {
   const btn = document.getElementById("btn-save-profile") as HTMLButtonElement;
