@@ -11,6 +11,7 @@ from app.models.repository import get_cached_analysis, save_analysis, update_job
 from app.models.job import JobAnalysis
 from app.models.application_data import ApplicationData
 from app.models.user import User
+from app.models.user_profile import UserProfile
 from app.database import get_db
 from app.api.deps import get_current_user
 
@@ -32,6 +33,21 @@ def _require_api_key(user: User) -> str:
         )
     from app.services.encryption import decrypt
     return decrypt(user.anthropic_api_key)
+
+
+def _get_active_profile(user_id: int, db: Session) -> UserProfile:
+    """Fetch the user's active profile. Raises 400 if none is set."""
+    profile = (
+        db.query(UserProfile)
+        .filter(UserProfile.user_id == user_id, UserProfile.is_active.is_(True))
+        .first()
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=400,
+            detail="No active profile found. Please create and activate a profile in the dashboard before analyzing jobs.",
+        )
+    return profile
 
 
 def _build_analyze_response(cached: JobAnalysis) -> AnalyzeResponse:
@@ -64,6 +80,7 @@ async def analyze_job_posting(
 ) -> AnalyzeResponse:
     logger.info("Received analyze request: %s at %s", request.job_title, request.company)
     api_key = _require_api_key(current_user)
+    profile = _get_active_profile(current_user.id, db)
 
     cached_result = None
     if request.url and not _is_dynamic_url(request.url):
@@ -106,6 +123,8 @@ async def analyze_job_posting(
             job_description=request.job_description,
             listed_salary=request.listed_salary,
             api_key=api_key,
+            resume_text=profile.resume_text or "",
+            instructions=profile.instructions,
         )
         logger.info("Analysis complete, fit_score: %s", result.fit_score)
     except ValueError as e:
@@ -232,13 +251,20 @@ async def get_company_info(
 @router.post("/interview-prep", response_model=InterviewPrepResponse)
 async def generate_interview_prep(
     request: InterviewPrepRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> InterviewPrepResponse:
     logger.info("Generating interview prep for: %s at %s", request.job_title, request.company)
     api_key = _require_api_key(current_user)
+    profile = _get_active_profile(current_user.id, db)
     from app.services.interview_prep import generate_prep_brief
     try:
-        return generate_prep_brief(request, api_key=api_key)
+        return generate_prep_brief(
+            request,
+            api_key=api_key,
+            resume_text=profile.resume_text or "",
+            instructions=profile.instructions,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -368,13 +394,20 @@ async def push_statuses(
 @router.post("/cover-letter", response_model=CoverLetterResponse)
 async def generate_cover_letter_endpoint(
     request: CoverLetterRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CoverLetterResponse:
     logger.info("Generating cover letter for: %s at %s", request.job_title, request.company)
     api_key = _require_api_key(current_user)
+    profile = _get_active_profile(current_user.id, db)
     from app.services.cover_letter import generate_cover_letter
     try:
-        return generate_cover_letter(request, api_key=api_key)
+        return generate_cover_letter(
+            request,
+            api_key=api_key,
+            resume_text=profile.resume_text or "",
+            instructions=profile.instructions,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
@@ -385,13 +418,20 @@ async def generate_cover_letter_endpoint(
 @router.post("/app-question", response_model=AppQuestionResponse)
 async def generate_app_question_endpoint(
     request: AppQuestionRequest,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> AppQuestionResponse:
     logger.info("Generating app answer for: %s at %s", request.job_title, request.company)
     api_key = _require_api_key(current_user)
+    profile = _get_active_profile(current_user.id, db)
     from app.services.app_questions import generate_app_answer
     try:
-        return generate_app_answer(request, api_key=api_key)
+        return generate_app_answer(
+            request,
+            api_key=api_key,
+            resume_text=profile.resume_text or "",
+            instructions=profile.instructions,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception:
