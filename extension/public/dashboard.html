@@ -592,11 +592,62 @@
         opacity: 0.8;
       }
 
-      /* Account tab */
-      .account-wrap {
+      /* Account tab — two-panel layout */
+      .account-layout {
+        display: flex;
+        height: calc(100vh - 56px);
+        overflow: hidden;
+      }
+
+      .account-sidebar {
+        width: 160px;
+        background: #0a0f1a;
+        border-right: 1px solid #1e293b;
+        padding: 20px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex-shrink: 0;
+      }
+
+      .account-nav-btn {
+        background: transparent;
+        border: none;
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 9px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        transition: background 0.15s, color 0.15s;
+      }
+
+      .account-nav-btn:hover {
+        background: #1e293b;
+        color: #e2e8f0;
+      }
+
+      .account-nav-btn.active {
+        background: #1e293b;
+        color: #38bdf8;
+      }
+
+      .account-content {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .account-panel {
+        display: none;
         max-width: 480px;
         margin: 40px auto;
         padding: 0 24px;
+      }
+
+      .account-panel.active {
+        display: block;
       }
 
       .account-section {
@@ -614,6 +665,200 @@
         margin-bottom: 18px;
         padding-bottom: 10px;
         border-bottom: 1px solid #1e293b;
+      }
+
+      /* Profiles panel */
+      .profiles-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+
+      .profiles-header h3 {
+        font-size: 14px;
+        font-weight: 600;
+        color: #e2e8f0;
+        margin: 0;
+      }
+
+      .profile-card {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .profile-card.is-active {
+        border-color: #0369a1;
+      }
+
+      .profile-card-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .profile-card-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: #e2e8f0;
+      }
+
+      .active-badge {
+        font-size: 10px;
+        background: #0c4a6e;
+        color: #38bdf8;
+        border: 1px solid #0369a1;
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+
+      .profile-card-actions {
+        display: flex;
+        gap: 6px;
+      }
+
+      .btn-profile-action {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #94a3b8;
+        font-size: 11px;
+        padding: 4px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+
+      .btn-profile-action:hover {
+        background: #334155;
+        color: #e2e8f0;
+      }
+
+      .btn-profile-action.activate {
+        color: #38bdf8;
+        border-color: #0369a1;
+      }
+
+      .btn-profile-action.delete {
+        color: #f87171;
+        border-color: #7f1d1d;
+      }
+
+      .btn-new-profile {
+        background: #0c4a6e;
+        border: 1px solid #0369a1;
+        color: #38bdf8;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 14px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+
+      .btn-new-profile:hover {
+        background: #075985;
+      }
+
+      /* Profile editor */
+      .profile-editor {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 12px;
+      }
+
+      .profile-editor-label {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 500;
+        margin-bottom: 5px;
+        display: block;
+      }
+
+      .profile-editor-input {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-size: 13px;
+        width: 100%;
+        margin-bottom: 14px;
+        box-sizing: border-box;
+        transition: border-color 0.15s;
+      }
+
+      .profile-editor-input:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+
+      .profile-editor-textarea {
+        background: #1e293b;
+        border: 1px solid #334155;
+        color: #e2e8f0;
+        border-radius: 6px;
+        padding: 10px;
+        font-size: 12px;
+        width: 100%;
+        resize: vertical;
+        font-family: inherit;
+        margin-bottom: 14px;
+        box-sizing: border-box;
+        min-height: 100px;
+      }
+
+      .profile-editor-textarea:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+
+      .resume-upload-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .btn-upload-resume {
+        background: #1e293b;
+        border: 1px dashed #475569;
+        color: #94a3b8;
+        border-radius: 6px;
+        padding: 7px 14px;
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+
+      .btn-upload-resume:hover {
+        background: #334155;
+        color: #e2e8f0;
+      }
+
+      .resume-parse-status {
+        font-size: 11px;
+        color: #64748b;
+      }
+
+      .profile-editor-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 4px;
+      }
+
+      .active-profile-indicator {
+        font-size: 11px;
+        color: #38bdf8;
+        margin-left: 4px;
+        font-weight: 400;
       }
 
       .form-row {
@@ -1109,69 +1354,132 @@
     </div>
 
     <div class="tab-panel" id="tab-account">
-      <div class="account-wrap">
+      <div class="account-layout">
 
-        <div class="account-section">
-          <h3>Profile</h3>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="acc-first">First Name</label>
-              <input type="text" id="acc-first" placeholder="First name" />
+        <nav class="account-sidebar">
+          <button class="account-nav-btn active" data-panel="account-details">Account Details</button>
+          <button class="account-nav-btn" data-panel="profiles">Profiles</button>
+        </nav>
+
+        <div class="account-content">
+
+          <!-- Account Details panel -->
+          <div class="account-panel active" id="panel-account-details">
+
+            <div class="account-section">
+              <h3>Profile</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="acc-first">First Name</label>
+                  <input type="text" id="acc-first" placeholder="First name" />
+                </div>
+                <div class="form-group">
+                  <label for="acc-last">Last Name</label>
+                  <input type="text" id="acc-last" placeholder="Last name" />
+                </div>
+              </div>
+              <div class="form-group" style="margin-bottom:14px">
+                <label for="acc-email">Email</label>
+                <input type="email" id="acc-email" placeholder="your@email.com" />
+              </div>
+              <div class="form-actions">
+                <button class="btn-save" id="btn-save-profile">Save Changes</button>
+              </div>
+              <div class="account-msg" id="profile-msg"></div>
             </div>
-            <div class="form-group">
-              <label for="acc-last">Last Name</label>
-              <input type="text" id="acc-last" placeholder="Last name" />
+
+            <div class="account-section">
+              <h3>Change Password</h3>
+              <div class="form-group" style="margin-bottom:14px">
+                <label for="acc-cur-pw">Current Password</label>
+                <input type="password" id="acc-cur-pw" placeholder="••••••••" />
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="acc-new-pw">New Password</label>
+                  <input type="password" id="acc-new-pw" placeholder="••••••••" />
+                </div>
+                <div class="form-group">
+                  <label for="acc-confirm-pw">Confirm</label>
+                  <input type="password" id="acc-confirm-pw" placeholder="••••••••" />
+                </div>
+              </div>
+              <div class="form-actions">
+                <button class="btn-save" id="btn-save-password">Update Password</button>
+              </div>
+              <div class="account-msg" id="password-msg"></div>
             </div>
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label for="acc-email">Email</label>
-            <input type="email" id="acc-email" placeholder="your@email.com" />
-          </div>
-          <div class="form-actions">
-            <button class="btn-save" id="btn-save-profile">Save Changes</button>
-          </div>
-          <div class="account-msg" id="profile-msg"></div>
-        </div>
 
-        <div class="account-section">
-          <h3>Change Password</h3>
-          <div class="form-group" style="margin-bottom:14px">
-            <label for="acc-cur-pw">Current Password</label>
-            <input type="password" id="acc-cur-pw" placeholder="••••••••" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="acc-new-pw">New Password</label>
-              <input type="password" id="acc-new-pw" placeholder="••••••••" />
+            <div class="account-section">
+              <h3>Anthropic API Key</h3>
+              <div class="form-group" style="margin-bottom:14px">
+                <label for="acc-api-key">API Key</label>
+                <input type="password" id="acc-api-key" placeholder="sk-ant-..." />
+              </div>
+              <div class="form-actions">
+                <button class="btn-save" id="btn-save-apikey">Save Key</button>
+              </div>
+              <div class="account-msg" id="apikey-msg"></div>
             </div>
-            <div class="form-group">
-              <label for="acc-confirm-pw">Confirm</label>
-              <input type="password" id="acc-confirm-pw" placeholder="••••••••" />
+
+            <div class="account-section">
+              <div class="account-meta" id="acc-meta"></div>
+              <button class="btn-logout" id="btn-logout" style="margin-top:16px">Sign Out</button>
             </div>
-          </div>
-          <div class="form-actions">
-            <button class="btn-save" id="btn-save-password">Update Password</button>
-          </div>
-          <div class="account-msg" id="password-msg"></div>
-        </div>
 
-        <div class="account-section">
-          <h3>Anthropic API Key</h3>
-          <div class="form-group" style="margin-bottom:14px">
-            <label for="acc-api-key">API Key</label>
-            <input type="password" id="acc-api-key" placeholder="sk-ant-..." />
           </div>
-          <div class="form-actions">
-            <button class="btn-save" id="btn-save-apikey">Save Key</button>
+
+          <!-- Profiles panel -->
+          <div class="account-panel" id="panel-profiles">
+
+            <div class="profiles-header">
+              <h3>Profiles <span class="active-profile-indicator" id="active-profile-label"></span></h3>
+              <button class="btn-new-profile" id="btn-new-profile">+ New Profile</button>
+            </div>
+
+            <div id="profiles-list"></div>
+
+            <div class="profile-editor" id="profile-editor" style="display:none">
+              <label class="profile-editor-label" for="profile-name-input">Profile Name</label>
+              <input
+                class="profile-editor-input"
+                type="text"
+                id="profile-name-input"
+                placeholder="e.g. PM Pivot, Software Engineer"
+              />
+
+              <label class="profile-editor-label">Resume (PDF or DOCX)</label>
+              <div class="resume-upload-row">
+                <button class="btn-upload-resume" id="btn-upload-resume">Upload Resume</button>
+                <span class="resume-parse-status" id="resume-parse-status"></span>
+              </div>
+              <input type="file" id="profile-resume-file" accept=".pdf,.docx" style="display:none" />
+
+              <label class="profile-editor-label" for="profile-resume-text">Resume Text (editable after upload)</label>
+              <textarea
+                class="profile-editor-textarea"
+                id="profile-resume-text"
+                placeholder="Upload a PDF or DOCX above, then edit the extracted text here if needed."
+                rows="10"
+              ></textarea>
+
+              <label class="profile-editor-label" for="profile-instructions">Analysis Instructions</label>
+              <textarea
+                class="profile-editor-textarea"
+                id="profile-instructions"
+                rows="4"
+              ></textarea>
+
+              <div class="profile-editor-actions">
+                <button class="btn-save" id="btn-save-profile-edit">Save Profile</button>
+                <button class="btn-profile-action" id="btn-cancel-profile-edit">Cancel</button>
+              </div>
+              <div class="account-msg" id="profile-editor-msg"></div>
+            </div>
+
           </div>
-          <div class="account-msg" id="apikey-msg"></div>
-        </div>
 
-        <div class="account-section">
-          <div class="account-meta" id="acc-meta"></div>
-          <button class="btn-logout" id="btn-logout" style="margin-top:16px">Sign Out</button>
         </div>
-
       </div>
     </div>
 
