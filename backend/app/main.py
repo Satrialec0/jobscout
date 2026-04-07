@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from app.api.analyze import router as analyze_router
 from app.api.auth import router as auth_router
 from app.api.reach import router as reach_router
+from app.api.profiles import router as profiles_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(analyze_router, prefix="/api/v1", tags=["analysis"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(reach_router, prefix="/api/v1/reach", tags=["reach"])
+app.include_router(profiles_router, prefix="/api/v1/profiles", tags=["profiles"])
 
 
 @app.get("/health")
