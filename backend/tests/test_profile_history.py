@@ -46,3 +46,12 @@ from app.api.analyze import get_job_by_db_id
 def test_get_job_by_db_id_function_exists():
     """get_job_by_db_id route handler must exist."""
     assert callable(get_job_by_db_id)
+
+
+def test_get_active_profile_endpoint_exists():
+    """get_active_profile_endpoint must be defined in profiles.py."""
+    import ast, pathlib
+    src = pathlib.Path("app/api/profiles.py").read_text()
+    tree = ast.parse(src)
+    names = [n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    assert "get_active_profile_endpoint" in names

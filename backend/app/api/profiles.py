@@ -1,11 +1,12 @@
 import logging
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.user_profile import UserProfile, DEFAULT_INSTRUCTIONS
-from app.schemas.profile import ProfileCreate, ProfileUpdate, ProfileResponse, ParseResumeResponse
+from app.schemas.profile import ProfileCreate, ProfileUpdate, ProfileResponse, ParseResumeResponse, ActiveProfileResponse
 from app.services.resume_parser import extract_resume_text
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,22 @@ async def parse_resume(
             detail="Could not extract text from the uploaded file. Try a different file.",
         )
     return ParseResumeResponse(text=text)
+
+
+@router.get("/active", response_model=Optional[ActiveProfileResponse])
+def get_active_profile_endpoint(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Optional[ActiveProfileResponse]:
+    """Return the active profile's id and name, or null if none is active."""
+    profile = (
+        db.query(UserProfile)
+        .filter(UserProfile.user_id == current_user.id, UserProfile.is_active.is_(True))
+        .first()
+    )
+    if not profile:
+        return None
+    return ActiveProfileResponse(id=profile.id, name=profile.name)
 
 
 @router.put("/{profile_id}", response_model=ProfileResponse)
