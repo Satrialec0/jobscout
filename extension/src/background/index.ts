@@ -30,6 +30,52 @@ function handle401() {
   chrome.runtime.sendMessage({ type: "AUTH_REQUIRED" }).catch(() => {});
 }
 
+async function seedBlocklist(): Promise<void> {
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/keywords/blocklist`, { headers });
+    if (!r.ok) return;
+    const data: { terms: string[] } = await r.json();
+    chrome.storage.local.set({ blocklist: data.terms });
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed blocklist:", err);
+  }
+}
+
+async function seedSignals(profileId: number): Promise<void> {
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/keywords/signals/${profileId}`, { headers });
+    if (!r.ok) return;
+    const signals: Array<{ ngram: string; hide_count: number; show_count: number }> = await r.json();
+    const updates: Record<string, number> = {};
+    for (const sig of signals) {
+      updates[`kw_hide_${sig.ngram}`] = sig.hide_count;
+      updates[`kw_show_${sig.ngram}`] = sig.show_count;
+    }
+    if (Object.keys(updates).length > 0) {
+      chrome.storage.local.set(updates);
+    }
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed signals:", err);
+  }
+}
+
+async function seedKeywordData(): Promise<void> {
+  await seedBlocklist();
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/profiles/active`, { headers });
+    if (!r.ok) return;
+    const profile: { id: number; name: string } | null = await r.json();
+    if (!profile) return;
+    chrome.storage.local.set({ active_profile_id: profile.id });
+    await seedSignals(profile.id);
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed keyword data:", err);
+  }
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "LOGIN") {
     fetch(`${BACKEND_URL}/auth/login`, {
@@ -42,14 +88,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (!ok) throw new Error(data.detail || "Login failed");
         chrome.storage.local.set({ auth_jwt: data.access_token });
         sendResponse({ success: true, hasApiKey: data.has_api_key });
+        // Fire-and-forget: seed keyword data after login
+        seedKeywordData();
       })
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true;
   }
 
   if (message.type === "LOGOUT") {
-    chrome.storage.local.remove("auth_jwt");
-    sendResponse({ success: true });
+    chrome.storage.local.clear(() => {
+      sendResponse({ success: true });
+    });
     return true;
   }
 
