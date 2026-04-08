@@ -1412,6 +1412,8 @@ async function activateProfileById(id: number): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!r.ok) throw new Error("Failed to activate profile");
+  // Notify background to re-seed keyword signals for the new profile
+  chrome.runtime.sendMessage({ type: "SWITCH_PROFILE", profileId: id }).catch(() => {});
 }
 
 async function parseResumeFile(file: File): Promise<string> {
