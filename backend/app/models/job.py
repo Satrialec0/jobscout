@@ -32,3 +32,5 @@ class JobAnalysis(Base):
     applied_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     ext_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None, index=True)
+    profile_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True, default=None)
+    profile_name: Mapped[str | None] = mapped_column(String(100), nullable=True, default=None)
