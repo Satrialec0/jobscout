@@ -48,3 +48,23 @@ def test_signal_item_fields():
 def test_signal_upsert_request_is_list():
     r = SignalUpsertRequest(signals=[SignalItem(ngram="foo", hide_count=1, show_count=0)])
     assert len(r.signals) == 1
+
+
+import ast
+import pathlib
+
+
+def test_keywords_router_exists():
+    src = pathlib.Path("app/api/keywords.py").read_text()
+    tree = ast.parse(src)
+    names = [n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    assert "get_blocklist" in names
+    assert "add_to_blocklist" in names
+    assert "remove_from_blocklist" in names
+    assert "get_signals" in names
+    assert "upsert_signals" in names
+
+
+def test_keywords_router_registered_in_main():
+    src = pathlib.Path("app/main.py").read_text()
+    assert "keywords_router" in src or "keywords" in src
