@@ -70,3 +70,85 @@ document.getElementById("btn-logout").addEventListener("click", () => {
   localStorage.removeItem("jobscout_jwt");
   window.location.href = "login.html";
 });
+
+// ── Tab switching ──
+document.querySelectorAll('.settings-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.settings-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'keyword-filters') loadBlocklist();
+  });
+});
+
+// ── Keyword Filters ──
+var blocklistTerms = [];
+
+async function loadBlocklist() {
+  const r = await authFetch('/api/v1/keywords/blocklist');
+  if (!r) return;
+  const data = await r.json();
+  blocklistTerms = data.terms || [];
+  renderBlocklist();
+}
+
+function renderBlocklist() {
+  const list = document.getElementById('keyword-list');
+  if (blocklistTerms.length === 0) {
+    list.innerHTML = '<li class="keyword-item-empty">No keyword filters yet. Add one above.</li>';
+    return;
+  }
+  list.innerHTML = blocklistTerms.map(function(term) {
+    return '<li class="keyword-item"><span>' + term + '</span>'
+      + '<button class="btn-remove-keyword" data-term="' + term.replace(/"/g, '&quot;') + '">\u00d7</button></li>';
+  }).join('');
+}
+
+document.getElementById('btn-add-keyword').addEventListener('click', async function() {
+  const input = document.getElementById('keyword-input');
+  const term = input.value.trim().toLowerCase();
+  const errEl = document.getElementById('keyword-error');
+  errEl.classList.add('hidden');
+
+  if (!term) return;
+  if (blocklistTerms.includes(term)) {
+    errEl.textContent = 'That term is already in your list.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  // Optimistic update
+  blocklistTerms.unshift(term);
+  renderBlocklist();
+  input.value = '';
+
+  const r = await authFetch('/api/v1/keywords/blocklist', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ term: term }),
+  });
+  if (!r || !r.ok) {
+    blocklistTerms = blocklistTerms.filter(function(t) { return t !== term; });
+    renderBlocklist();
+    errEl.textContent = 'Failed to add keyword. Please try again.';
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('keyword-list').addEventListener('click', async function(e) {
+  const btn = e.target.closest('.btn-remove-keyword');
+  if (!btn) return;
+  const term = btn.dataset.term;
+
+  // Optimistic update
+  var prev = blocklistTerms.slice();
+  blocklistTerms = blocklistTerms.filter(function(t) { return t !== term; });
+  renderBlocklist();
+
+  const r = await authFetch('/api/v1/keywords/blocklist/' + encodeURIComponent(term), { method: 'DELETE' });
+  if (!r || !r.ok) {
+    blocklistTerms = prev;
+    renderBlocklist();
+  }
+});

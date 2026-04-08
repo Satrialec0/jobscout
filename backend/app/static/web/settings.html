@@ -19,11 +19,16 @@
   </div>
 </div>
 
-<div class="settings-content">
-  <div id="new-user-banner" class="hidden" style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.3);border-radius:8px;padding:14px 18px;margin-bottom:20px;font-size:13px;color:#4a9eff;">
-    Welcome to JobScout! Add your Anthropic API key below to start analyzing jobs.
-  </div>
+<div id="new-user-banner" class="hidden" style="background:rgba(74,158,255,0.1);border:1px solid rgba(74,158,255,0.3);border-radius:8px;padding:14px 18px;margin:20px auto 0;max-width:640px;font-size:13px;color:#4a9eff;">
+  Welcome to JobScout! Add your Anthropic API key below to start analyzing jobs.
+</div>
 
+<div class="settings-tabs">
+  <button class="settings-tab active" data-tab="account">Account</button>
+  <button class="settings-tab" data-tab="keyword-filters">Keyword Filters</button>
+</div>
+
+<div id="tab-account" class="settings-content tab-panel active">
   <!-- API Key card -->
   <div class="settings-card">
     <h2>Anthropic API Key</h2>
@@ -45,6 +50,19 @@
     <h2>Account</h2>
     <div class="info-row"><span class="info-label">Email</span><span id="info-email">—</span></div>
     <div class="info-row"><span class="info-label">Member since</span><span id="info-since">—</span></div>
+  </div>
+</div>
+
+<div id="tab-keyword-filters" class="settings-content tab-panel">
+  <div class="settings-card">
+    <h2>Keyword Filters</h2>
+    <p class="card-desc">Job cards with titles containing these terms will be automatically dimmed. Changes apply the next time you browse a job site.</p>
+    <div class="keyword-input-row">
+      <input type="text" id="keyword-input" placeholder="e.g. sales representative" autocomplete="off">
+      <button class="btn-save" id="btn-add-keyword">Add</button>
+    </div>
+    <div id="keyword-error" class="error-msg hidden"></div>
+    <ul id="keyword-list" class="keyword-list"></ul>
   </div>
 </div>
 

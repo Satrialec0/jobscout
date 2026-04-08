@@ -288,6 +288,22 @@ select {
 .info-row:last-child { border-bottom: none; }
 .info-row .info-label { color: var(--text-muted); }
 
+.settings-tabs { display: flex; gap: 4px; max-width: 640px; margin: 24px auto 0; padding: 0 24px; }
+.settings-tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 16px; font-size: 13px; font-weight: 500; color: var(--text-muted); cursor: pointer; }
+.settings-tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.settings-tab:hover:not(.active) { color: var(--text); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+.keyword-input-row { display: flex; gap: 10px; margin-bottom: 16px; }
+.keyword-input-row input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 9px 12px; color: var(--text); font-size: 13px; }
+.keyword-list { list-style: none; padding: 0; margin: 0; }
+.keyword-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.keyword-item:last-child { border-bottom: none; }
+.keyword-item-empty { font-size: 13px; color: var(--text-muted); padding: 12px 0; }
+.btn-remove-keyword { background: none; border: none; color: var(--text-muted); font-size: 16px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.btn-remove-keyword:hover { color: var(--red); background: rgba(233,69,96,0.1); }
+
 /* ── No API key banner ── */
 .api-key-banner {
   background: rgba(233,69,96,0.1);

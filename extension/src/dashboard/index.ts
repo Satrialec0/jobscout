@@ -1496,6 +1496,96 @@ async function loadProfilesPanel(): Promise<void> {
   renderProfiles();
 }
 
+// ── Keyword Filters panel ────────────────────────────────────────────────────
+
+let kwFilterTerms: string[] = [];
+
+async function loadKeywordFiltersPanel(): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/keywords/blocklist`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return;
+    const data: { terms: string[] } = await r.json();
+    kwFilterTerms = data.terms;
+    renderKwFilterList();
+  } catch (err) {
+    console.error("[JobScout] Failed to load keyword filters:", err);
+  }
+}
+
+function renderKwFilterList(): void {
+  const list = document.getElementById("kw-filter-list");
+  if (!list) return;
+  if (kwFilterTerms.length === 0) {
+    list.innerHTML = '<li style="font-size:12px;color:var(--text-muted);padding:8px 0;">No keyword filters yet. Add one above.</li>';
+    return;
+  }
+  list.innerHTML = kwFilterTerms
+    .map(
+      (term) =>
+        `<li style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#1e293b);font-size:13px;">` +
+        `<span>${term}</span>` +
+        `<button data-kw-term="${term.replace(/"/g, "&quot;")}" style="background:none;border:none;color:var(--text-muted);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px;">×</button>` +
+        `</li>`,
+    )
+    .join("");
+}
+
+document.getElementById("btn-add-kw-filter")?.addEventListener("click", async () => {
+  const input = document.getElementById("kw-filter-input") as HTMLInputElement;
+  const errEl = document.getElementById("kw-filter-error");
+  const term = input.value.trim().toLowerCase();
+  if (errEl) errEl.style.display = "none";
+
+  if (!term) return;
+  if (kwFilterTerms.includes(term)) {
+    if (errEl) { errEl.textContent = "That term is already in your list."; errEl.style.display = "block"; }
+    return;
+  }
+
+  // Optimistic update
+  kwFilterTerms.unshift(term);
+  renderKwFilterList();
+  input.value = "";
+
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/keywords/blocklist`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ term }),
+  });
+  if (!r.ok) {
+    kwFilterTerms = kwFilterTerms.filter((t) => t !== term);
+    renderKwFilterList();
+    if (errEl) { errEl.textContent = "Failed to add keyword. Please try again."; errEl.style.display = "block"; }
+  }
+});
+
+document.getElementById("kw-filter-list")?.addEventListener("click", async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-kw-term]");
+  if (!btn) return;
+  const term = btn.dataset.kwTerm!;
+
+  const prev = [...kwFilterTerms];
+  kwFilterTerms = kwFilterTerms.filter((t) => t !== term);
+  renderKwFilterList();
+
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(
+    `${process.env.BACKEND_URL}/keywords/blocklist/${encodeURIComponent(term)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!r.ok) {
+    kwFilterTerms = prev;
+    renderKwFilterList();
+  }
+});
+
 // ── Account sidebar navigation ───────────────────────────────────────────────
 
 document.querySelectorAll<HTMLButtonElement>(".account-nav-btn").forEach((btn) => {
@@ -1506,6 +1596,7 @@ document.querySelectorAll<HTMLButtonElement>(".account-nav-btn").forEach((btn) =
     const panelId = `panel-${btn.dataset.panel}`;
     document.getElementById(panelId)?.classList.add("active");
     if (btn.dataset.panel === "profiles") loadProfilesPanel();
+    if (btn.dataset.panel === "keyword-filters") loadKeywordFiltersPanel();
   });
 });
 
