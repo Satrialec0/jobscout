@@ -63,6 +63,7 @@ interface DashboardJob {
   result: AnalyzeResponse;
   url: string | null;
   dbId?: number;
+  profileName?: string | null;
 }
 
 const STATUS_CYCLE: AppStatus[] = [
@@ -125,6 +126,7 @@ let sortAsc = false;
 let expandedJobId: string | null = null;
 let profiles: UserProfile[] = [];
 let editingProfileId: number | null = null;
+let activeProfileName: string | null = null;
 
 function detectSite(jobId: string): string {
   if (jobId.startsWith("hc_")) return "hiring-cafe";
@@ -344,7 +346,11 @@ function loadJobs(): void {
     updateCount();
 
     // Backfill dbId for jobs missing it, then sync status
-    backfillDbIds().then(() => syncStatusFromBackend());
+    backfillDbIds().then(async () => {
+      const active = await fetchActiveProfile();
+      activeProfileName = active?.name ?? null;
+      await syncStatusFromBackend();
+    });
   });
 }
 
@@ -414,7 +420,7 @@ async function syncStatusFromBackend(): Promise<void> {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!r.ok) return;
-    const backendJobs: Array<{ id: number; status: string | null; url?: string }> = await r.json();
+    const backendJobs: Array<{ id: number; status: string | null; url?: string; profile_name?: string | null }> = await r.json();
 
     // Backend wins for jobs it already has a status for
     let changed = false;
@@ -427,6 +433,15 @@ async function syncStatusFromBackend(): Promise<void> {
       changed = true;
     }
     if (changed) { renderStats(); renderTable(); }
+
+    // Set profileName on in-memory jobs from backend history data
+    for (const bj of backendJobs) {
+      const local = allJobs.find((j) => j.dbId === bj.id);
+      if (local) local.profileName = bj.profile_name ?? null;
+    }
+
+    // Populate the profile filter dropdown
+    populateProfileFilter();
 
     // Push every local status to the backend via push-statuses (handles duplicates correctly)
     const localWithStatus = allJobs.filter((j) => j.status !== null);
@@ -638,6 +653,8 @@ function getFilteredJobs(): DashboardJob[] {
     "all";
   const appliedWithin =
     (document.getElementById("filter-applied-date") as HTMLSelectElement)?.value ?? "all";
+  const profileFilter =
+    (document.getElementById("filter-profile") as HTMLSelectElement)?.value ?? "all";
 
   const appliedCutoff = appliedWithin !== "all"
     ? Date.now() - parseInt(appliedWithin) * 24 * 60 * 60 * 1000
@@ -667,6 +684,13 @@ function getFilteredJobs(): DashboardJob[] {
       if (appliedCutoff !== null) {
         if (!j.appliedDate || j.appliedDate < appliedCutoff) return false;
       }
+      if (profileFilter === "__none__" && j.profileName) return false;
+      if (
+        profileFilter !== "all" &&
+        profileFilter !== "__none__" &&
+        j.profileName !== profileFilter
+      )
+        return false;
       return true;
     })
     .sort((a, b) => {
@@ -705,6 +729,31 @@ function getFilteredJobs(): DashboardJob[] {
         ? (av as number) - (bv as number)
         : (bv as number) - (av as number);
     });
+}
+
+function populateProfileFilter(): void {
+  const sel = document.getElementById("filter-profile") as HTMLSelectElement | null;
+  if (!sel) return;
+
+  // Collect distinct non-null profile names from loaded jobs
+  const names = Array.from(
+    new Set(allJobs.map((j) => j.profileName).filter((n): n is string => !!n))
+  ).sort();
+
+  // Rebuild options: always start with "All profiles"
+  sel.innerHTML = `<option value="all">All profiles</option>` +
+    names.map((n) => `<option value="${n}">${n}</option>`).join("") +
+    (allJobs.some((j) => j.profileName == null || j.profileName === "")
+      ? `<option value="__none__">No profile</option>`
+      : "");
+
+  // Seed default to active profile if it appears in the list
+  if (activeProfileName && names.includes(activeProfileName)) {
+    sel.value = activeProfileName;
+  }
+
+  renderTable();
+  updateCount();
 }
 
 function renderTable(): void {
@@ -753,6 +802,7 @@ function renderTable(): void {
           }
         </div>
         <div class="company">${job.company}</div>
+        ${job.profileName ? `<span style="font-size:10px;color:#64748b;background:#1e293b;border:1px solid #334155;border-radius:4px;padding:1px 6px;display:inline-block;margin-top:3px">${job.profileName}</span>` : ""}
       </td>
       <td class="company">${job.company}</td>
       <td class="salary-cell">${salary}</td>
@@ -777,7 +827,16 @@ function renderTable(): void {
       detailTr.className = "detail-row";
       detailTr.innerHTML = `
         <td colspan="10">
-          <div style="font-size:12px;color:#94a3b8;font-style:italic;margin-bottom:12px">${job.verdict}</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <div style="font-size:12px;color:#94a3b8;font-style:italic;flex:1">${job.verdict}</div>
+            <button
+              class="reanalyze-btn"
+              data-job-id="${job.jobId}"
+              data-db-id="${job.dbId ?? ""}"
+              style="font-size:11px;padding:4px 10px;background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0"
+              title="Re-analyze under your current active profile"
+            >↺ Re-analyze</button>
+          </div>
           <div class="detail-grid">
             <div class="detail-section green">
               <h4>✓ Direct Matches (${job.result.direct_matches?.length ?? 0})</h4>
@@ -896,6 +955,63 @@ function renderTable(): void {
         }
       });
     });
+
+  // Re-analyze button
+  tbody.querySelectorAll<HTMLButtonElement>(".reanalyze-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const dbId = Number(btn.getAttribute("data-db-id"));
+      if (!dbId) return;
+
+      const originalText = btn.textContent!;
+      btn.disabled = true;
+      btn.textContent = "Analyzing…";
+
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("Not authenticated");
+
+        // Fetch job description from backend
+        const detailResp = await fetch(`${process.env.BACKEND_URL}/job/${dbId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!detailResp.ok) throw new Error("Could not fetch job details");
+        const detail: { job_title: string; company: string; job_description: string; url?: string } =
+          await detailResp.json();
+
+        // Re-analyze under the current active profile
+        const analyzeResp = await fetch(`${process.env.BACKEND_URL}/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            job_title: detail.job_title,
+            company: detail.company,
+            job_description: detail.job_description,
+            url: detail.url ?? null,
+          }),
+        });
+        if (!analyzeResp.ok) {
+          const err = await analyzeResp.json();
+          throw new Error(err.detail ?? "Re-analysis failed");
+        }
+
+        // Reload history to show the new row
+        btn.textContent = "Done!";
+        setTimeout(() => {
+          loadJobs();
+        }, 800);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Re-analysis failed";
+        btn.textContent = msg;
+        btn.style.color = "#f87171";
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = originalText;
+          btn.style.color = "#94a3b8";
+        }, 3000);
+      }
+    });
+  });
 }
 
 function updateCount(): void {
@@ -973,6 +1089,10 @@ document.getElementById("filter-status")?.addEventListener("change", () => {
   updateCount();
 });
 document.getElementById("filter-applied-date")?.addEventListener("change", () => {
+  renderTable();
+  updateCount();
+});
+document.getElementById("filter-profile")?.addEventListener("change", () => {
   renderTable();
   updateCount();
 });
@@ -1233,6 +1353,20 @@ async function fetchProfiles(): Promise<UserProfile[]> {
     return r.json();
   } catch {
     return [];
+  }
+}
+
+async function fetchActiveProfile(): Promise<{ id: number; name: string } | null> {
+  const token = await getToken();
+  if (!token) return null;
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/profiles/active`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return null;
+    return r.json();
+  } catch {
+    return null;
   }
 }
 
