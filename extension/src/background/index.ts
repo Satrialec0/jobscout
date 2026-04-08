@@ -76,6 +76,67 @@ async function seedKeywordData(): Promise<void> {
   }
 }
 
+// ===== SIGNAL SYNC =====
+
+const dirtyNgrams = new Set<string>();
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+const SYNC_DEBOUNCE_MS = 30_000;
+
+function scheduleSyncSignals(): void {
+  if (syncTimer !== null) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    flushSignals();
+  }, SYNC_DEBOUNCE_MS);
+}
+
+async function flushSignals(): Promise<void> {
+  if (dirtyNgrams.size === 0) return;
+  const toFlush = Array.from(dirtyNgrams);
+  dirtyNgrams.clear();
+
+  const hideKeys = toFlush.map((ng) => `kw_hide_${ng}`);
+  const showKeys = toFlush.map((ng) => `kw_show_${ng}`);
+
+  chrome.storage.local.get(["active_profile_id", ...hideKeys, ...showKeys], async (data) => {
+    const profileId = data["active_profile_id"] as number | undefined;
+    if (!profileId) return;
+
+    const payload = toFlush.map((ng) => ({
+      ngram: ng,
+      hide_count: (data[`kw_hide_${ng}`] as number) ?? 0,
+      show_count: (data[`kw_show_${ng}`] as number) ?? 0,
+    }));
+
+    const headers = await getAuthHeaders();
+    fetch(`${BACKEND_URL}/keywords/signals/${profileId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ signals: payload }),
+    }).catch((err) => console.error("[JobScout BG] Signal sync failed:", err));
+  });
+}
+
+// Watch for kw_* changes written by the content script
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  for (const key of Object.keys(changes)) {
+    if (key.startsWith("kw_hide_") || key.startsWith("kw_show_")) {
+      dirtyNgrams.add(key.replace(/^kw_(?:hide|show)_/, ""));
+    }
+  }
+  if (dirtyNgrams.size > 0) scheduleSyncSignals();
+});
+
+// Flush on service worker shutdown
+chrome.runtime.onSuspend.addListener(() => {
+  if (syncTimer !== null) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  flushSignals();
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === "LOGIN") {
     fetch(`${BACKEND_URL}/auth/login`, {
@@ -319,6 +380,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         })
         .then(() => sendResponse({ success: true }))
         .catch((err) => sendResponse({ success: false, error: err.message }));
+    });
+    return true;
+  }
+
+  if (message.type === "SWITCH_PROFILE") {
+    // Flush pending signals for the outgoing profile first
+    if (syncTimer !== null) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    flushSignals().then(async () => {
+      // Clear all kw_* keys from local storage
+      chrome.storage.local.get(null, async (items) => {
+        const keysToRemove = Object.keys(items).filter(
+          (k) => k.startsWith("kw_hide_") || k.startsWith("kw_show_"),
+        );
+        if (keysToRemove.length > 0) {
+          await new Promise<void>((resolve) =>
+            chrome.storage.local.remove(keysToRemove, resolve),
+          );
+        }
+
+        // Store new active profile and seed its signals
+        chrome.storage.local.set({ active_profile_id: message.profileId });
+        await seedSignals(message.profileId as number);
+
+        // Notify all content scripts
+        chrome.tabs.query({}, (tabs) => {
+          tabs.forEach((tab) => {
+            if (tab.id) {
+              chrome.tabs.sendMessage(tab.id, { type: "PROFILE_SWITCHED" }).catch(() => {});
+            }
+          });
+        });
+
+        sendResponse({ success: true });
+      });
     });
     return true;
   }
