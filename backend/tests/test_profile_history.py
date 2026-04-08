@@ -38,3 +38,11 @@ def test_save_analysis_accepts_profile_params():
     sig = inspect.signature(save_analysis)
     assert "profile_id" in sig.parameters
     assert "profile_name" in sig.parameters
+
+
+from app.api.analyze import get_job_by_db_id
+
+
+def test_get_job_by_db_id_function_exists():
+    """get_job_by_db_id route handler must exist."""
+    assert callable(get_job_by_db_id)

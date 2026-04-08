@@ -112,6 +112,8 @@ async def analyze_job_posting(
             result=response,
             url=request.url,
             user_id=current_user.id,
+            profile_id=profile.id,
+            profile_name=profile.name,
         )
         response.db_id = new_row.id
         return response
@@ -142,6 +144,8 @@ async def analyze_job_posting(
         result=result,
         url=request.url,
         user_id=current_user.id,
+        profile_id=profile.id,
+        profile_name=profile.name,
     )
     result.db_id = saved.id
     return result
@@ -208,6 +212,29 @@ async def get_score_by_job_id(
         "created_at": record.created_at.isoformat(),
         "salary_estimate": record.salary_estimate,
         "db_id": record.id,
+    }
+
+
+@router.get("/job/{db_id}")
+async def get_job_by_db_id(
+    db_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Fetch job data by database row ID. Used by the dashboard re-analyze flow."""
+    record = (
+        db.query(JobAnalysis)
+        .filter(JobAnalysis.id == db_id, JobAnalysis.user_id == current_user.id)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {
+        "db_id": record.id,
+        "job_title": record.job_title,
+        "company": record.company,
+        "job_description": record.job_description,
+        "url": record.url,
     }
 
 
