@@ -27,3 +27,14 @@ def test_active_profile_response_schema():
     r = ActiveProfileResponse(id=1, name="Senior IC")
     assert r.id == 1
     assert r.name == "Senior IC"
+
+
+import inspect
+from app.models.repository import save_analysis
+
+
+def test_save_analysis_accepts_profile_params():
+    """save_analysis must accept profile_id and profile_name keyword args."""
+    sig = inspect.signature(save_analysis)
+    assert "profile_id" in sig.parameters
+    assert "profile_name" in sig.parameters

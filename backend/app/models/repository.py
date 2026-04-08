@@ -24,6 +24,8 @@ def save_analysis(
     result: AnalyzeResponse,
     url: str | None = None,
     user_id: int | None = None,
+    profile_id: int | None = None,
+    profile_name: str | None = None,
 ) -> JobAnalysis:
     salary_estimate_dict = None
     if result.salary_estimate:
@@ -51,6 +53,8 @@ def save_analysis(
         green_flags=result.green_flags,
         salary_estimate=salary_estimate_dict,
         user_id=user_id,
+        profile_id=profile_id,
+        profile_name=profile_name,
     )
     db.add(record)
     db.commit()
