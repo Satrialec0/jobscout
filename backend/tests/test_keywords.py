@@ -18,3 +18,33 @@ def test_profile_keyword_signal_columns():
     assert "hide_count" in cols
     assert "show_count" in cols
     assert "updated_at" in cols
+
+
+from app.schemas.keyword import (
+    BlocklistResponse,
+    BlocklistAddRequest,
+    SignalItem,
+    SignalUpsertRequest,
+)
+
+
+def test_blocklist_response_has_terms():
+    r = BlocklistResponse(terms=["sales", "driver"])
+    assert r.terms == ["sales", "driver"]
+
+
+def test_blocklist_add_request_has_term():
+    r = BlocklistAddRequest(term="sales rep")
+    assert r.term == "sales rep"
+
+
+def test_signal_item_fields():
+    s = SignalItem(ngram="data science", hide_count=3, show_count=1)
+    assert s.ngram == "data science"
+    assert s.hide_count == 3
+    assert s.show_count == 1
+
+
+def test_signal_upsert_request_is_list():
+    r = SignalUpsertRequest(signals=[SignalItem(ngram="foo", hide_count=1, show_count=0)])
+    assert len(r.signals) == 1
