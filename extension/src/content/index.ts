@@ -51,29 +51,25 @@ function detectSite(url: string): "linkedin" | "indeed" | "hiring-cafe" | null {
   return null;
 }
 
-const BAD_FIT_KEYWORDS = [
-  "sales representative",
-  "recruiter",
-  "truck driver",
-  "diesel mechanic",
-  "retail associate",
-  "customer service representative",
-  "customer success",
-  "customer service",
-  "retail",
-  "driver",
-  "technician",
-  "diesel",
-  "mechanic",
-  "hvac",
-  "plumber",
-  "carpenter",
-  "welder",
-];
+// Blocklist is seeded from the backend by the background service worker on login.
+// The background writes it to chrome.storage.local as `blocklist: string[]`.
+let blocklist: string[] = [];
+
+// Load initial value from storage
+chrome.storage.local.get("blocklist", (data) => {
+  blocklist = (data.blocklist as string[]) ?? [];
+});
+
+// Keep it updated if background refreshes it (login, profile switch, settings edit)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes["blocklist"]) {
+    blocklist = (changes["blocklist"].newValue as string[]) ?? [];
+  }
+});
 
 function shouldKeywordDim(title: string): boolean {
   const lower = title.toLowerCase();
-  return BAD_FIT_KEYWORDS.some((kw) => lower.includes(kw));
+  return blocklist.some((kw) => lower.includes(kw));
 }
 
 // ===== ADAPTIVE KEYWORD LEARNING =====
@@ -1467,3 +1463,11 @@ initUrlWatcher();
 initCardObserver();
 initHiringCafeModalWatcher();
 onUrlChange(window.location.href);
+
+// Re-evaluate all visible cards when the active profile changes
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "PROFILE_SWITCHED") {
+    console.log("[JobScout] Profile switched — re-evaluating cards");
+    reEvaluateAllCards();
+  }
+});
