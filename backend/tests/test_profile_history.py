@@ -9,3 +9,21 @@ def test_job_analysis_has_profile_columns():
     cols = {c.key for c in JobAnalysis.__table__.columns}
     assert "profile_id" in cols
     assert "profile_name" in cols
+
+
+from app.schemas.analyze import JobHistoryItem
+from app.schemas.profile import ActiveProfileResponse
+
+
+def test_job_history_item_has_profile_fields():
+    """JobHistoryItem must include optional profile_id and profile_name."""
+    fields = JobHistoryItem.model_fields
+    assert "profile_id" in fields
+    assert "profile_name" in fields
+
+
+def test_active_profile_response_schema():
+    """ActiveProfileResponse must have id and name."""
+    r = ActiveProfileResponse(id=1, name="Senior IC")
+    assert r.id == 1
+    assert r.name == "Senior IC"

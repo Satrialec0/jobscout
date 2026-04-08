@@ -29,3 +29,8 @@ class ProfileResponse(BaseModel):
 
 class ParseResumeResponse(BaseModel):
     text: str
+
+
+class ActiveProfileResponse(BaseModel):
+    id: int
+    name: str

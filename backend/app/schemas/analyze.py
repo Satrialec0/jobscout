@@ -56,6 +56,8 @@ class JobHistoryItem(BaseModel):
     gaps: list = []
     red_flags: list[str] = []
     green_flags: list[str] = []
+    profile_id: Optional[int] = None
+    profile_name: Optional[str] = None
 
     class Config:
         from_attributes = True
