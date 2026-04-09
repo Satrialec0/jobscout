@@ -1404,7 +1404,7 @@ async function deleteProfileById(id: number): Promise<void> {
   if (!r.ok) throw new Error("Failed to delete profile");
 }
 
-async function activateProfileById(id: number): Promise<void> {
+async function activateProfileById(id: number, name: string): Promise<void> {
   const token = await getToken();
   if (!token) return;
   const r = await fetch(`${process.env.BACKEND_URL}/profiles/${id}/activate`, {
@@ -1413,7 +1413,7 @@ async function activateProfileById(id: number): Promise<void> {
   });
   if (!r.ok) throw new Error("Failed to activate profile");
   // Notify background to re-seed keyword signals for the new profile
-  chrome.runtime.sendMessage({ type: "SWITCH_PROFILE", profileId: id }).catch(() => {});
+  chrome.runtime.sendMessage({ type: "SWITCH_PROFILE", profileId: id, profileName: name }).catch(() => {});
 }
 
 async function parseResumeFile(file: File): Promise<string> {
@@ -1613,7 +1613,7 @@ document.getElementById("profiles-list")?.addEventListener("click", async (e) =>
 
   if (action === "activate") {
     try {
-      await activateProfileById(id);
+      await activateProfileById(id, profiles.find((p) => p.id === id)?.name ?? "");
       profiles = await fetchProfiles();
       renderProfiles();
     } catch (err) {

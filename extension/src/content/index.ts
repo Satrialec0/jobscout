@@ -577,7 +577,7 @@ function sendToBackend(
       }
 
       const result: AnalyzeResponse = response.data;
-      saveAndDisplay(result, data, effectiveJobId, currentUrl);
+      saveAndDisplay(result, data, effectiveJobId, currentUrl, response.profileName as string | undefined);
     },
   );
 }
@@ -587,6 +587,7 @@ function saveAndDisplay(
   data: JobExtraction,
   effectiveJobId: string,
   currentUrl: string,
+  profileName?: string,
 ): void {
   const cachePayload: Record<string, unknown> = {};
   cachePayload["hc_pending_job_id"] = null; // Clear pending flag on save
@@ -602,12 +603,14 @@ function saveAndDisplay(
     timestamp: Date.now(),
     url: currentUrl,
     dbId: (result as { db_id?: number }).db_id ?? undefined,
+    profileName,
   };
 
   cachePayload[`jobid_${effectiveJobId}`] = {
     score: result.fit_score,
     shouldApply: result.should_apply,
     verdict: result.one_line_verdict,
+    profileName,
   };
 
   chrome.storage.local.set(cachePayload, () => {
@@ -616,7 +619,7 @@ function saveAndDisplay(
       "[JobScout] Score saved, updating badges for job:",
       effectiveJobId,
     );
-    displayResult(result, data, effectiveJobId, currentUrl);
+    displayResult(result, data, effectiveJobId, currentUrl, profileName);
 
     if (bulkModeActive && !completedJobIds.has(effectiveJobId)) {
       completedJobIds.add(effectiveJobId);
@@ -631,12 +634,14 @@ function displayResult(
   data: JobExtraction,
   effectiveJobId: string,
   currentUrl: string,
+  profileName?: string,
 ): void {
   updateBadgeForJobId(
     effectiveJobId,
     result.fit_score,
     result.should_apply,
     result.one_line_verdict,
+    profileName,
   );
   // Update visibility with final score — respects user overrides
   const scoredCard = document.querySelector<HTMLElement>(
@@ -712,6 +717,9 @@ function displayResult(
         badge.textContent = `${result.fit_score}`;
         badge.title = result.one_line_verdict;
         badgeTarget.appendChild(badge);
+        if (profileName) {
+          badgeTarget.appendChild(createHCProfilePill(profileName));
+        }
         console.log(
           "[JobScout Badge] Injected HC card badge post-analysis:",
           effectiveJobId,
@@ -975,7 +983,7 @@ function processBulkQueueNext(): void {
         }
 
         const result: AnalyzeResponse = response.data;
-        saveAndDisplay(result, next.data, next.jobId, next.url);
+        saveAndDisplay(result, next.data, next.jobId, next.url, response.profileName as string | undefined);
       },
     );
   });
@@ -1250,12 +1258,13 @@ function initHiringCafeModalWatcher(): void {
         chrome.storage.local.get(`score_jobid_${jobId}`, (cached) => {
           if (cached[`score_jobid_${jobId}`]) {
             console.log("[JobScout] Cache hit for job:", jobId);
+            const cachedEntry = cached[`score_jobid_${jobId}`] as { result: AnalyzeResponse; profileName?: string };
             displayResult(
-              (cached[`score_jobid_${jobId}`] as { result: AnalyzeResponse })
-                .result,
+              cachedEntry.result,
               data,
               jobId,
               currentUrl,
+              cachedEntry.profileName,
             );
           } else if (bulkModeActive) {
             // Bulk mode — queue only, do NOT call waitForContentThenAnalyze
@@ -1276,6 +1285,93 @@ function initHiringCafeModalWatcher(): void {
   });
 
   modalObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function createHCProfilePill(profileName: string): HTMLSpanElement {
+  const pill = document.createElement("span");
+  pill.setAttribute("data-jobscout-profile-pill", "true");
+  const display = profileName.length > 14 ? profileName.slice(0, 13) + "…" : profileName;
+  pill.style.cssText = `
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 4px;
+    vertical-align: middle;
+    background: #0f172a;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    cursor: default;
+    white-space: nowrap;
+  `;
+  pill.textContent = display;
+  pill.title = `Scored under profile: ${profileName}`;
+  return pill;
+}
+
+function applyHCCardState(
+  card: Element,
+  titleSpan: HTMLElement,
+  companySpan: HTMLElement | null,
+): void {
+  const title = titleSpan.innerText.trim();
+  if (!title || title.length < 3) return;
+
+  const company = companySpan?.innerText?.trim() ?? "";
+  const jobId = buildHCJobId(title, company);
+
+  card.setAttribute("data-jobscout-hc-id", jobId);
+
+  // Clear stale UI from the previous carousel position
+  card.querySelectorAll("[data-jobscout-badge]").forEach((el) => el.remove());
+  card.querySelectorAll("[data-jobscout-profile-pill]").forEach((el) => el.remove());
+  const existingBtn = card.querySelector("[data-jobscout-vis-btn]");
+  if (existingBtn) existingBtn.remove();
+  undimCard(card);
+
+  // Apply visibility — checks user overrides, cache, then keywords
+  applyVisibility(card, jobId, undefined, title);
+
+  const badgeTarget = titleSpan.closest("div.mt-1");
+  if (!badgeTarget) return;
+
+  const storageKey = `jobid_${jobId}`;
+  chrome.storage.local.get(storageKey, (data) => {
+    const stored = data[storageKey] as
+      | { score: number; shouldApply: boolean; verdict: string; profileName?: string }
+      | undefined;
+    if (stored) {
+      applyVisibility(card, jobId, stored.score, title);
+      const badge = document.createElement("span");
+      badge.setAttribute("data-jobscout-badge", jobId);
+      badge.style.cssText = `
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-left: 6px;
+        vertical-align: middle;
+        background: ${stored.score >= 80 ? "#052e16" : stored.score >= 60 ? "#1c1917" : stored.score >= 40 ? "#1c0a00" : "#2d1515"};
+        color: ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
+        border: 1px solid ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
+        cursor: default;
+      `;
+      badge.textContent = `${stored.score}`;
+      badge.title = stored.verdict;
+      badgeTarget.appendChild(badge);
+      if (stored.profileName) {
+        badgeTarget.appendChild(createHCProfilePill(stored.profileName));
+      }
+      console.log(
+        "[JobScout Badge] Injected HC card badge for:",
+        title.substring(0, 30),
+        "→",
+        stored.score,
+      );
+    }
+  });
 }
 
 function initCardObserver(): void {
@@ -1309,53 +1405,30 @@ function initCardObserver(): void {
         const companySpan = card.querySelector<HTMLElement>(
           "span.font-bold:not([class*='line-clamp'])",
         );
-        const company = companySpan?.innerText?.trim() ?? "";
-
-        const jobId = buildHCJobId(title, company);
 
         card.setAttribute("data-jobscout-processed", "true");
-        card.setAttribute("data-jobscout-hc-id", jobId);
 
-        // Apply visibility — checks user overrides, cache, then keywords
-        applyVisibility(card, jobId, undefined, title);
+        // Apply initial badge/visibility for the first visible job on this card
+        applyHCCardState(card, titleSpan, companySpan);
 
-        const badgeTarget = titleSpan.closest("div.mt-1");
-        if (!badgeTarget) return;
-
-        const storageKey = `jobid_${jobId}`;
-        chrome.storage.local.get(storageKey, (data) => {
-          const stored = data[storageKey] as
-            | { score: number; shouldApply: boolean; verdict: string }
-            | undefined;
-          if (stored) {
-            // Update visibility with actual score
-            applyVisibility(card, jobId, stored.score, title);
-            const badge = document.createElement("span");
-            badge.setAttribute("data-jobscout-badge", jobId);
-            badge.style.cssText = `
-              display: inline-block;
-              font-size: 10px;
-              font-weight: 700;
-              padding: 1px 5px;
-              border-radius: 4px;
-              margin-left: 6px;
-              vertical-align: middle;
-              background: ${stored.score >= 80 ? "#052e16" : stored.score >= 60 ? "#1c1917" : stored.score >= 40 ? "#1c0a00" : "#2d1515"};
-              color: ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
-              border: 1px solid ${stored.score >= 80 ? "#4ade80" : stored.score >= 60 ? "#facc15" : stored.score >= 40 ? "#fb923c" : "#f87171"};
-              cursor: default;
-            `;
-            badge.textContent = `${stored.score}`;
-            badge.title = stored.verdict;
-            badgeTarget.appendChild(badge);
-            console.log(
-              "[JobScout Badge] Injected HC card badge for:",
-              title.substring(0, 30),
-              "→",
-              stored.score,
-            );
-          }
+        // Watch for carousel navigation: when the user flips to a different job within
+        // this card the title span text changes — reset all per-job UI accordingly.
+        let lastHCTitle = title;
+        const carouselObserver = new MutationObserver(() => {
+          const currentTitleSpan = card.querySelector<HTMLElement>(
+            "span[class*='font-bold'][class*='line-clamp']",
+          );
+          if (!currentTitleSpan) return;
+          const newTitle = currentTitleSpan.innerText.trim();
+          if (!newTitle || newTitle.length < 3 || newTitle === lastHCTitle) return;
+          lastHCTitle = newTitle;
+          const currentCompanySpan = card.querySelector<HTMLElement>(
+            "span.font-bold:not([class*='line-clamp'])",
+          );
+          applyHCCardState(card, currentTitleSpan, currentCompanySpan);
         });
+        carouselObserver.observe(card, { childList: true, subtree: true, characterData: true });
+
         return;
       }
 

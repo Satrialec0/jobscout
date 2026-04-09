@@ -7,6 +7,32 @@ interface StoredJobScore {
   score: number;
   shouldApply: boolean;
   verdict?: string;
+  profileName?: string;
+}
+
+function createProfilePill(profileName: string): HTMLSpanElement {
+  const pill = document.createElement("span");
+  pill.setAttribute("data-jobscout-profile-pill", "true");
+  const display = profileName.length > 14 ? profileName.slice(0, 13) + "…" : profileName;
+  pill.style.cssText = [
+    "display: inline-block",
+    "font-size: 10px",
+    "font-weight: 500",
+    "padding: 2px 6px",
+    "border-radius: 4px",
+    "margin-left: 4px",
+    "vertical-align: middle",
+    "background: #0f172a",
+    "color: #94a3b8",
+    "border: 1px solid #334155",
+    "cursor: default",
+    "white-space: nowrap",
+    "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    "line-height: 1.4",
+  ].join("; ");
+  pill.textContent = display;
+  pill.title = `Scored under profile: ${profileName}`;
+  return pill;
 }
 
 function getScoreColor(score: number): {
@@ -190,6 +216,7 @@ export function updateBadgeForJobId(
   score: number,
   shouldApply: boolean,
   verdict?: string,
+  profileName?: string,
 ): void {
   injectTooltipStyles();
 
@@ -200,6 +227,11 @@ export function updateBadgeForJobId(
     if (!existing) return;
     const newBadge = createScoreBadge(score, shouldApply, verdict);
     existing.replaceWith(newBadge);
+    // Remove any stale profile pill and inject a fresh one
+    card.querySelectorAll("[data-jobscout-profile-pill]").forEach((el) => el.remove());
+    if (profileName) {
+      newBadge.insertAdjacentElement("afterend", createProfilePill(profileName));
+    }
     console.log("[JobScout Badge] Updated badge for job:", jobId, "→", score);
   });
 }
@@ -228,6 +260,9 @@ export function checkAndInjectFromStorage(card: Element): void {
         stored.verdict,
       );
       target.appendChild(badge);
+      if (stored.profileName) {
+        target.appendChild(createProfilePill(stored.profileName));
+      }
       card.setAttribute("data-jobscout-id", jobId);
       console.log(
         "[JobScout Badge] Injected cached badge for job:",

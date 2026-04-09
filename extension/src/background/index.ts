@@ -69,7 +69,7 @@ async function seedKeywordData(): Promise<void> {
     if (!r.ok) return;
     const profile: { id: number; name: string } | null = await r.json();
     if (!profile) return;
-    chrome.storage.local.set({ active_profile_id: profile.id });
+    chrome.storage.local.set({ active_profile_id: profile.id, active_profile_name: profile.name });
     await seedSignals(profile.id);
   } catch (err) {
     console.error("[JobScout BG] Failed to seed keyword data:", err);
@@ -194,9 +194,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     fetchAnalysis(message.payload)
-      .then((result) => {
+      .then(async (result) => {
         console.log("[JobScout BG] Analysis complete, fit_score:", result.fit_score);
-        sendResponse({ success: true, data: result });
+        // Read profile name from storage; if missing, fetch it now so the
+        // content script always gets a name without depending on login timing.
+        const stored = await new Promise<Record<string, unknown>>((resolve) =>
+          chrome.storage.local.get("active_profile_name", (items) => resolve(items)),
+        );
+        let profileName = stored["active_profile_name"] as string | undefined;
+        if (!profileName) {
+          try {
+            const headers = await getAuthHeaders();
+            const r = await fetch(`${BACKEND_URL}/profiles/active`, { headers });
+            if (r.ok) {
+              const profile: { id: number; name: string } | null = await r.json();
+              if (profile) {
+                profileName = profile.name;
+                chrome.storage.local.set({ active_profile_id: profile.id, active_profile_name: profile.name });
+              }
+            }
+          } catch { /* profile name stays undefined */ }
+        }
+        sendResponse({ success: true, data: result, profileName });
       })
       .catch((err) => {
         console.error("[JobScout BG] Analysis failed:", err);
@@ -403,7 +422,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         // Store new active profile and seed its signals
-        chrome.storage.local.set({ active_profile_id: message.profileId });
+        chrome.storage.local.set({ active_profile_id: message.profileId, active_profile_name: message.profileName ?? null });
         await seedSignals(message.profileId as number);
 
         // Notify all content scripts
