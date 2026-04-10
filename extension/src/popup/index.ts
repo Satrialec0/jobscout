@@ -38,6 +38,12 @@ interface StoredScore {
   dbId?: number;
 }
 
+interface UserProfile {
+  id: number;
+  name: string;
+  is_active: boolean;
+}
+
 interface ReachJob {
   jobId: string;
   title: string;
@@ -615,6 +621,52 @@ function isHiringCafe(url: string): boolean {
   return url.includes("hiring.cafe");
 }
 
+async function initProfileBar(jwt: string): Promise<void> {
+  const bar = document.getElementById("profile-bar");
+  const sel = document.getElementById("profile-select") as HTMLSelectElement | null;
+  const switchingEl = document.getElementById("profile-switching");
+  if (!bar || !sel) return;
+
+  const headers = { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" };
+
+  let profiles: UserProfile[] = [];
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/profiles`, { headers });
+    if (r.ok) profiles = await r.json();
+  } catch { /* no profiles available */ }
+
+  if (profiles.length === 0) return;
+
+  // Populate options
+  sel.innerHTML = profiles
+    .map((p) => `<option value="${p.id}" data-name="${p.name}" ${p.is_active ? "selected" : ""}>${p.name}</option>`)
+    .join("");
+
+  bar.style.display = "flex";
+
+  sel.addEventListener("change", async () => {
+    const opt = sel.options[sel.selectedIndex];
+    const profileId = Number(opt.value);
+    const profileName = opt.dataset.name ?? opt.text;
+
+    if (switchingEl) switchingEl.style.display = "inline";
+    sel.disabled = true;
+
+    try {
+      const r = await fetch(`${process.env.BACKEND_URL}/profiles/${profileId}/activate`, {
+        method: "POST",
+        headers,
+      });
+      if (r.ok) {
+        chrome.runtime.sendMessage({ type: "SWITCH_PROFILE", profileId, profileName });
+      }
+    } catch { /* ignore */ } finally {
+      if (switchingEl) switchingEl.style.display = "none";
+      sel.disabled = false;
+    }
+  });
+}
+
 // Listen for auth-required message from background
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "AUTH_REQUIRED") renderNotSignedIn();
@@ -634,6 +686,7 @@ chrome.storage.local.get("auth_jwt", (authData) => {
     renderNotSignedIn();
     return;
   }
+  initProfileBar(authData.auth_jwt as string);
   proceedWithScoreLoad();
 });
 

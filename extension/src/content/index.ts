@@ -43,6 +43,7 @@ interface AnalyzeResponse {
 
 let analysisInProgress = false;
 let lastAnalyzedJobId = "";
+let resetModalWatcher: (() => void) | null = null;
 
 function detectSite(url: string): "linkedin" | "indeed" | "hiring-cafe" | null {
   if (isLinkedInJobPage(url)) return "linkedin";
@@ -1210,6 +1211,7 @@ function initHiringCafeModalWatcher(): void {
 
   console.log("[JobScout] Initializing Hiring.cafe modal watcher");
   let lastModalJobId = "";
+  resetModalWatcher = () => { lastModalJobId = ""; };
 
   const modalObserver = new MutationObserver(() => {
     const modal = document.querySelector<HTMLElement>(".chakra-modal__body");
@@ -1540,7 +1542,13 @@ onUrlChange(window.location.href);
 // Re-evaluate all visible cards when the active profile changes
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "PROFILE_SWITCHED") {
-    console.log("[JobScout] Profile switched — re-evaluating cards");
+    console.log("[JobScout] Profile switched — resetting analysis state and re-evaluating cards");
+    // Reset analysis guards so the next job open triggers a fresh analysis
+    lastAnalyzedJobId = "";
+    analysisInProgress = false;
+    resetModalWatcher?.();
+    // Remove any stale modal panel so the loading banner re-appears on next open
+    document.querySelector("[data-jobscout-modal-panel]")?.remove();
     reEvaluateAllCards();
   }
 });

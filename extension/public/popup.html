@@ -430,6 +430,47 @@
         color: #fbbf24;
         border: 1px solid #78350f;
       }
+
+      .profile-bar {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0;
+        padding: 5px 16px;
+        border-bottom: 1px solid #1e293b;
+      }
+
+      .profile-bar-label {
+        font-size: 11px;
+        color: #475569;
+        white-space: nowrap;
+        margin-right: 10px;
+      }
+
+      .profile-select {
+        background: #1e293b;
+        color: #cbd5e1;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        font-size: 11px;
+        padding: 3px 8px;
+        cursor: pointer;
+        outline: none;
+        max-width: 160px;
+      }
+
+      .profile-select:hover {
+        border-color: #475569;
+      }
+
+      .profile-select:focus {
+        border-color: #38bdf8;
+      }
+
+      .profile-switching {
+        font-size: 11px;
+        color: #38bdf8;
+      }
     </style>
   </head>
   <body>
@@ -451,7 +492,7 @@
         "
         title="View all scored jobs"
       >
-        📋 History
+        📋 Dashboard
       </button>
       <button
         id="btn-logout"
@@ -468,6 +509,11 @@
       >
         ⏏ Out
       </button>
+    </div>
+    <div id="profile-bar" style="display:none">
+      <span class="profile-bar-label">Profile:</span>
+      <select id="profile-select" class="profile-select"></select>
+      <span id="profile-switching" class="profile-switching" style="display:none">switching…</span>
     </div>
     <div id="content">
       <div class="state-loading">

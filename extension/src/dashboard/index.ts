@@ -526,19 +526,28 @@ function renderStats(): void {
   const bar = document.getElementById("stats-bar");
   if (!bar) return;
 
-  const total = allJobs.length;
-  const shouldApply = allJobs.filter((j) => j.shouldApply).length;
+  // Apply profile filter so stats reflect the selected profile
+  const profileFilter =
+    (document.getElementById("filter-profile") as HTMLSelectElement)?.value ?? "all";
+  const statsJobs = allJobs.filter((j) => {
+    if (profileFilter === "__none__" && j.profileName) return false;
+    if (profileFilter !== "all" && profileFilter !== "__none__" && j.profileName !== profileFilter) return false;
+    return true;
+  });
+
+  const total = statsJobs.length;
+  const shouldApply = statsJobs.filter((j) => j.shouldApply).length;
   const avgScore =
     total > 0
-      ? Math.round(allJobs.reduce((s, j) => s + j.score, 0) / total)
+      ? Math.round(statsJobs.reduce((s, j) => s + j.score, 0) / total)
       : 0;
-  const high = allJobs.filter((j) => j.score >= 70).length;
+  const high = statsJobs.filter((j) => j.score >= 70).length;
 
-  const applied = allJobs.filter((j) => j.status === "applied").length;
-  const phoneScreen = allJobs.filter((j) => j.status === "phone_screen").length;
-  const interviewed = allJobs.filter((j) => j.status === "interviewed").length;
-  const offer = allJobs.filter((j) => j.status === "offer").length;
-  const rejected = allJobs.filter((j) => j.status === "rejected").length;
+  const applied = statsJobs.filter((j) => j.status === "applied").length;
+  const phoneScreen = statsJobs.filter((j) => j.status === "phone_screen").length;
+  const interviewed = statsJobs.filter((j) => j.status === "interviewed").length;
+  const offer = statsJobs.filter((j) => j.status === "offer").length;
+  const rejected = statsJobs.filter((j) => j.status === "rejected").length;
   const totalApplied = applied + phoneScreen + interviewed + offer + rejected;
 
   const responseRate =
@@ -753,6 +762,7 @@ function populateProfileFilter(): void {
   }
 
   renderTable();
+  renderStats();
   updateCount();
 }
 
@@ -1094,6 +1104,7 @@ document.getElementById("filter-applied-date")?.addEventListener("change", () =>
 });
 document.getElementById("filter-profile")?.addEventListener("change", () => {
   renderTable();
+  renderStats();
   updateCount();
 });
 
