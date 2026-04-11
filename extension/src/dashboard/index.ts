@@ -1522,6 +1522,7 @@ async function loadKeywordFiltersPanel(): Promise<void> {
     const data: { terms: string[] } = await r.json();
     kwFilterTerms = data.terms;
     renderKwFilterList();
+    loadBlockedCompanies();
   } catch (err) {
     console.error("[JobScout] Failed to load keyword filters:", err);
   }
@@ -1597,6 +1598,357 @@ document.getElementById("kw-filter-list")?.addEventListener("click", async (e) =
   }
 });
 
+// ── Blocked Companies (global) ────────────────────────────────────────────────
+
+interface BlockCompanyItem { id: number; name: string; }
+let blockCompanies: BlockCompanyItem[] = [];
+
+async function loadBlockedCompanies(): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  try {
+    const r = await fetch(`${process.env.BACKEND_URL}/companies`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return;
+    const data: { targets: BlockCompanyItem[]; blocks: BlockCompanyItem[] } = await r.json();
+    blockCompanies = data.blocks;
+    renderBlockCompanyList();
+    // Sync to storage so content script can use company_block_* keys
+    const toSet: Record<string, boolean> = {};
+    blockCompanies.forEach((c) => { toSet[`company_block_${c.name.toLowerCase()}`] = true; });
+    chrome.storage.local.set(toSet);
+  } catch (err) {
+    console.error("[JobScout] Failed to load blocked companies:", err);
+  }
+}
+
+function renderBlockCompanyList(): void {
+  const list = document.getElementById("block-company-list");
+  if (!list) return;
+  if (blockCompanies.length === 0) {
+    list.innerHTML = '<li style="font-size:12px;color:var(--text-muted);padding:8px 0;">No blocked companies yet. Add one above.</li>';
+    return;
+  }
+  list.innerHTML = blockCompanies
+    .map(
+      (c) =>
+        `<li style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#1e293b);font-size:13px;">` +
+        `<span>${c.name}</span>` +
+        `<button data-block-company-id="${c.id}" data-block-company-name="${c.name.replace(/"/g, "&quot;")}" style="background:none;border:none;color:var(--text-muted);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px;">×</button>` +
+        `</li>`,
+    )
+    .join("");
+}
+
+document.getElementById("btn-add-block-company")?.addEventListener("click", async () => {
+  const input = document.getElementById("block-company-input") as HTMLInputElement;
+  const errEl = document.getElementById("block-company-error");
+  const name = input.value.trim();
+  if (errEl) errEl.style.display = "none";
+
+  if (!name) return;
+  if (blockCompanies.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+    if (errEl) { errEl.textContent = "That company is already blocked."; errEl.style.display = "block"; }
+    return;
+  }
+
+  input.value = "";
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/companies/block`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (r.ok) {
+    const data: { id: number; name: string } = await r.json();
+    blockCompanies.push({ id: data.id, name: data.name });
+    renderBlockCompanyList();
+    chrome.storage.local.set({ [`company_block_${data.name.toLowerCase()}`]: true });
+  } else {
+    if (errEl) { errEl.textContent = "Failed to add company. Please try again."; errEl.style.display = "block"; }
+  }
+});
+
+document.getElementById("block-company-list")?.addEventListener("click", async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-block-company-id]");
+  if (!btn) return;
+  const id = parseInt(btn.dataset.blockCompanyId!, 10);
+  const name = btn.dataset.blockCompanyName!;
+
+  const prev = [...blockCompanies];
+  blockCompanies = blockCompanies.filter((c) => c.id !== id);
+  renderBlockCompanyList();
+  chrome.storage.local.remove(`company_block_${name.toLowerCase()}`);
+
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/companies/block/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    blockCompanies = prev;
+    renderBlockCompanyList();
+    chrome.storage.local.set({ [`company_block_${name.toLowerCase()}`]: true });
+  }
+});
+
+// ── Targeting panel ──────────────────────────────────────────────────────────
+
+interface TargetKeywordItem { id: number; keyword: string; source: string; }
+interface TargetSignalItem { ngram: string; target_count: number; show_count: number; }
+interface TargetCompanyItem { id: number; name: string; }
+
+let targetKeywords: TargetKeywordItem[] = [];
+let targetSignals: TargetSignalItem[] = [];
+let targetCompanies: TargetCompanyItem[] = [];
+let targetingProfileId: number | null = null;
+
+async function loadTargetingPanel(): Promise<void> {
+  const token = await getToken();
+  if (!token) return;
+  const profile = await fetchActiveProfile();
+  if (!profile) return;
+  targetingProfileId = profile.id;
+
+  try {
+    const [kwRes, sigRes, coRes] = await Promise.all([
+      fetch(`${process.env.BACKEND_URL}/profiles/${profile.id}/target-keywords`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      fetch(`${process.env.BACKEND_URL}/keywords/target-signals/${profile.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      fetch(`${process.env.BACKEND_URL}/companies?profile_id=${profile.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ]);
+
+    if (kwRes.ok) targetKeywords = await kwRes.json();
+    if (sigRes.ok) targetSignals = await sigRes.json();
+    if (coRes.ok) {
+      const coData: { targets: TargetCompanyItem[]; blocks: TargetCompanyItem[] } = await coRes.json();
+      targetCompanies = coData.targets;
+    }
+
+    renderTargetKeywordList();
+    renderTargetSignalList();
+    renderTargetCompanyList();
+  } catch (err) {
+    console.error("[JobScout] Failed to load targeting panel:", err);
+  }
+}
+
+function renderTargetKeywordList(): void {
+  const list = document.getElementById("target-kw-list");
+  if (!list) return;
+  if (targetKeywords.length === 0) {
+    list.innerHTML = '<li style="font-size:12px;color:var(--text-muted);padding:8px 0;">No profile keywords yet.</li>';
+    return;
+  }
+  list.innerHTML = targetKeywords
+    .map(
+      (kw) =>
+        `<li style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#1e293b);font-size:13px;">` +
+        `<span>${kw.keyword} <span style="font-size:10px;color:var(--text-muted);margin-left:4px;">${kw.source}</span></span>` +
+        `<button data-target-kw="${kw.keyword.replace(/"/g, "&quot;")}" style="background:none;border:none;color:var(--text-muted);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px;">×</button>` +
+        `</li>`,
+    )
+    .join("");
+}
+
+function renderTargetSignalList(): void {
+  const list = document.getElementById("target-signal-list");
+  const empty = document.getElementById("target-signal-empty");
+  if (!list) return;
+  const active = targetSignals.filter(
+    (s) => s.target_count >= 3 && s.show_count > 0 && s.target_count / s.show_count >= 0.7,
+  );
+  const inactive = targetSignals.filter((s) => !active.includes(s));
+  const all = [...active, ...inactive];
+  if (all.length === 0) {
+    list.innerHTML = "";
+    if (empty) empty.style.display = "block";
+    return;
+  }
+  if (empty) empty.style.display = "none";
+  list.innerHTML = all
+    .map((s) => {
+      const conf = s.show_count > 0 ? Math.round((s.target_count / s.show_count) * 100) : 0;
+      const isActive = s.target_count >= 3 && conf >= 70;
+      const badge = isActive
+        ? `<span style="font-size:10px;color:#4ade80;margin-left:6px;">active</span>`
+        : `<span style="font-size:10px;color:var(--text-muted);margin-left:6px;">building</span>`;
+      return (
+        `<li style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#1e293b);font-size:13px;">` +
+        `<span>${s.ngram}${badge}</span>` +
+        `<span style="font-size:11px;color:var(--text-muted);">${s.target_count}/${s.show_count} (${conf}%)</span>` +
+        `</li>`
+      );
+    })
+    .join("");
+}
+
+function renderTargetCompanyList(): void {
+  const list = document.getElementById("target-company-list");
+  if (!list) return;
+  if (targetCompanies.length === 0) {
+    list.innerHTML = '<li style="font-size:12px;color:var(--text-muted);padding:8px 0;">No target companies yet. Add one above.</li>';
+    return;
+  }
+  list.innerHTML = targetCompanies
+    .map(
+      (c) =>
+        `<li style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border,#1e293b);font-size:13px;">` +
+        `<span>${c.name}</span>` +
+        `<button data-target-co-id="${c.id}" data-target-co-name="${c.name.replace(/"/g, "&quot;")}" style="background:none;border:none;color:var(--text-muted);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px;">×</button>` +
+        `</li>`,
+    )
+    .join("");
+}
+
+document.getElementById("btn-add-target-kw")?.addEventListener("click", async () => {
+  const input = document.getElementById("target-kw-input") as HTMLInputElement;
+  const errEl = document.getElementById("target-kw-error");
+  const keyword = input.value.trim().toLowerCase();
+  if (errEl) errEl.style.display = "none";
+  if (!keyword || !targetingProfileId) return;
+  if (targetKeywords.some((k) => k.keyword === keyword)) {
+    if (errEl) { errEl.textContent = "That keyword is already in your list."; errEl.style.display = "block"; }
+    return;
+  }
+
+  input.value = "";
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/profiles/${targetingProfileId}/target-keywords`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ keyword, source: "manual" }),
+  });
+  if (r.ok) {
+    targetKeywords.push({ id: 0, keyword, source: "manual" });
+    renderTargetKeywordList();
+    chrome.storage.local.set({ [`kw_target_profile_${keyword}`]: true });
+  } else {
+    if (errEl) { errEl.textContent = "Failed to add keyword. Please try again."; errEl.style.display = "block"; }
+  }
+});
+
+document.getElementById("target-kw-list")?.addEventListener("click", async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-target-kw]");
+  if (!btn || !targetingProfileId) return;
+  const keyword = btn.dataset.targetKw!;
+
+  const prev = [...targetKeywords];
+  targetKeywords = targetKeywords.filter((k) => k.keyword !== keyword);
+  renderTargetKeywordList();
+  chrome.storage.local.remove(`kw_target_profile_${keyword}`);
+
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(
+    `${process.env.BACKEND_URL}/profiles/${targetingProfileId}/target-keywords/${encodeURIComponent(keyword)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!r.ok) {
+    targetKeywords = prev;
+    renderTargetKeywordList();
+    chrome.storage.local.set({ [`kw_target_profile_${keyword}`]: true });
+  }
+});
+
+document.getElementById("btn-reset-target-kw")?.addEventListener("click", async () => {
+  if (!targetingProfileId) return;
+  const msgEl = document.getElementById("target-kw-reset-msg");
+  if (msgEl) msgEl.textContent = "Re-extracting...";
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(
+    `${process.env.BACKEND_URL}/profiles/${targetingProfileId}/target-keywords/reset`,
+    { method: "POST", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (r.ok) {
+    const data: { reset: number } = await r.json();
+    if (msgEl) msgEl.textContent = `Done — ${data.reset} keywords extracted.`;
+    // Reload fresh list
+    const kwRes = await fetch(
+      `${process.env.BACKEND_URL}/profiles/${targetingProfileId}/target-keywords`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (kwRes.ok) {
+      targetKeywords = await kwRes.json();
+      renderTargetKeywordList();
+      // Resync storage
+      const toRemove = Object.keys(await new Promise<Record<string, unknown>>((resolve) =>
+        chrome.storage.local.get(null, resolve),
+      )).filter((k) => k.startsWith("kw_target_profile_"));
+      chrome.storage.local.remove(toRemove);
+      const toSet: Record<string, boolean> = {};
+      targetKeywords.forEach((kw) => { toSet[`kw_target_profile_${kw.keyword}`] = true; });
+      chrome.storage.local.set(toSet);
+    }
+    setTimeout(() => { if (msgEl) msgEl.textContent = ""; }, 4000);
+  } else {
+    if (msgEl) msgEl.textContent = "Failed to re-extract.";
+  }
+});
+
+document.getElementById("btn-add-target-company")?.addEventListener("click", async () => {
+  const input = document.getElementById("target-company-input") as HTMLInputElement;
+  const errEl = document.getElementById("target-company-error");
+  const name = input.value.trim();
+  if (errEl) errEl.style.display = "none";
+  if (!name || !targetingProfileId) return;
+  if (targetCompanies.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+    if (errEl) { errEl.textContent = "That company is already targeted."; errEl.style.display = "block"; }
+    return;
+  }
+
+  input.value = "";
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/companies/target`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ name, profile_id: targetingProfileId }),
+  });
+  if (r.ok) {
+    const data: { id: number; name: string } = await r.json();
+    targetCompanies.push({ id: data.id, name: data.name });
+    renderTargetCompanyList();
+    chrome.storage.local.set({ [`company_target_${data.name.toLowerCase()}`]: true });
+  } else {
+    if (errEl) { errEl.textContent = "Failed to add company. Please try again."; errEl.style.display = "block"; }
+  }
+});
+
+document.getElementById("target-company-list")?.addEventListener("click", async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-target-co-id]");
+  if (!btn) return;
+  const id = parseInt(btn.dataset.targetCoId!, 10);
+  const name = btn.dataset.targetCoName!;
+
+  const prev = [...targetCompanies];
+  targetCompanies = targetCompanies.filter((c) => c.id !== id);
+  renderTargetCompanyList();
+  chrome.storage.local.remove(`company_target_${name.toLowerCase()}`);
+
+  const token = await getToken();
+  if (!token) return;
+  const r = await fetch(`${process.env.BACKEND_URL}/companies/target/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    targetCompanies = prev;
+    renderTargetCompanyList();
+    chrome.storage.local.set({ [`company_target_${name.toLowerCase()}`]: true });
+  }
+});
+
 // ── Account sidebar navigation ───────────────────────────────────────────────
 
 document.querySelectorAll<HTMLButtonElement>(".account-nav-btn").forEach((btn) => {
@@ -1608,6 +1960,7 @@ document.querySelectorAll<HTMLButtonElement>(".account-nav-btn").forEach((btn) =
     document.getElementById(panelId)?.classList.add("active");
     if (btn.dataset.panel === "profiles") loadProfilesPanel();
     if (btn.dataset.panel === "keyword-filters") loadKeywordFiltersPanel();
+    if (btn.dataset.panel === "targeting") loadTargetingPanel();
   });
 });
 

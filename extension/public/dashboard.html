@@ -1365,7 +1365,8 @@
         <nav class="account-sidebar">
           <button class="account-nav-btn active" data-panel="account-details">Account Details</button>
           <button class="account-nav-btn" data-panel="profiles">Profiles</button>
-          <button class="account-nav-btn" data-panel="keyword-filters">Keyword Filters</button>
+          <button class="account-nav-btn" data-panel="keyword-filters">Avoiding</button>
+          <button class="account-nav-btn" data-panel="targeting">Targeting</button>
         </nav>
 
         <div class="account-content">
@@ -1486,10 +1487,10 @@
 
           </div>
 
-          <!-- Keyword Filters panel -->
+          <!-- Avoiding panel (was Keyword Filters) -->
           <div class="account-panel" id="panel-keyword-filters">
             <div class="account-section">
-              <h3>Keyword Filters</h3>
+              <h3>Avoiding</h3>
               <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Job cards with titles containing these terms will be automatically dimmed.</p>
               <div style="display:flex;gap:8px;margin-bottom:12px;">
                 <input type="text" id="kw-filter-input" placeholder="e.g. sales representative" autocomplete="off" style="flex:1;background:var(--bg,#0d1117);border:1px solid var(--border,#1e293b);border-radius:6px;padding:8px 10px;color:inherit;font-size:13px;">
@@ -1498,6 +1499,55 @@
               <div id="kw-filter-error" style="display:none;color:#e94560;font-size:12px;margin-bottom:8px;"></div>
               <ul id="kw-filter-list" style="list-style:none;padding:0;margin:0;"></ul>
             </div>
+
+            <div class="account-section" style="margin-top:24px;">
+              <h3>Blocked Companies</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Job cards from these companies will be automatically dimmed across all profiles.</p>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <input type="text" id="block-company-input" placeholder="e.g. Acme Staffing" autocomplete="off" style="flex:1;background:var(--bg,#0d1117);border:1px solid var(--border,#1e293b);border-radius:6px;padding:8px 10px;color:inherit;font-size:13px;">
+                <button class="btn-save-profile" id="btn-add-block-company">Add</button>
+              </div>
+              <div id="block-company-error" style="display:none;color:#e94560;font-size:12px;margin-bottom:8px;"></div>
+              <ul id="block-company-list" style="list-style:none;padding:0;margin:0;"></ul>
+            </div>
+          </div>
+
+          <!-- Targeting panel -->
+          <div class="account-panel" id="panel-targeting">
+
+            <div class="account-section">
+              <h3>Profile Keywords</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Skills and keywords extracted from your resume. Job cards matching these are highlighted green.</p>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <input type="text" id="target-kw-input" placeholder="e.g. product management" autocomplete="off" style="flex:1;background:var(--bg,#0d1117);border:1px solid var(--border,#1e293b);border-radius:6px;padding:8px 10px;color:inherit;font-size:13px;">
+                <button class="btn-save-profile" id="btn-add-target-kw">Add</button>
+              </div>
+              <div id="target-kw-error" style="display:none;color:#e94560;font-size:12px;margin-bottom:8px;"></div>
+              <ul id="target-kw-list" style="list-style:none;padding:0;margin:0;"></ul>
+              <div style="margin-top:12px;">
+                <button class="btn-profile-action" id="btn-reset-target-kw" style="font-size:12px;">Re-extract from resume</button>
+                <span id="target-kw-reset-msg" style="font-size:12px;color:var(--text-muted);margin-left:8px;"></span>
+              </div>
+            </div>
+
+            <div class="account-section" style="margin-top:24px;">
+              <h3>Learned Signals</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Keyword n-grams mined from high-scoring jobs and apply clicks. Shown when a signal has been seen ≥3 times with ≥70% target confidence.</p>
+              <ul id="target-signal-list" style="list-style:none;padding:0;margin:0;"></ul>
+              <p id="target-signal-empty" style="font-size:12px;color:var(--text-muted);display:none;">No learned signals yet. Analyze more jobs to build up signals.</p>
+            </div>
+
+            <div class="account-section" style="margin-top:24px;">
+              <h3>Target Companies</h3>
+              <p style="font-size:12px;color:var(--text-muted);margin-bottom:16px;">Job cards from these companies will be highlighted green for this profile.</p>
+              <div style="display:flex;gap:8px;margin-bottom:12px;">
+                <input type="text" id="target-company-input" placeholder="e.g. Stripe" autocomplete="off" style="flex:1;background:var(--bg,#0d1117);border:1px solid var(--border,#1e293b);border-radius:6px;padding:8px 10px;color:inherit;font-size:13px;">
+                <button class="btn-save-profile" id="btn-add-target-company">Add</button>
+              </div>
+              <div id="target-company-error" style="display:none;color:#e94560;font-size:12px;margin-bottom:8px;"></div>
+              <ul id="target-company-list" style="list-style:none;padding:0;margin:0;"></ul>
+            </div>
+
           </div>
 
         </div>
