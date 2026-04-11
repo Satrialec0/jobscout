@@ -53,3 +53,16 @@ def test_companies_response():
     )
     assert len(r.targets) == 1
     assert len(r.blocks) == 1
+
+
+from app.services.keyword_extractor import extract_keywords_from_resume
+
+
+def test_extract_keywords_returns_list_for_empty_resume():
+    result = extract_keywords_from_resume(None)
+    assert result == []
+
+
+def test_extract_keywords_returns_list_for_blank_resume():
+    result = extract_keywords_from_resume("   ")
+    assert result == []
