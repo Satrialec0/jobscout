@@ -72,6 +72,11 @@ import ast
 import pathlib
 
 
+def test_targeting_router_registered_in_main():
+    src = pathlib.Path("app/main.py").read_text()
+    assert "targeting_router" in src or "targeting" in src
+
+
 def test_targeting_router_functions_exist():
     src = pathlib.Path("app/api/targeting.py").read_text()
     tree = ast.parse(src)

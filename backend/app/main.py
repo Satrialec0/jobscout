@@ -9,6 +9,7 @@ from app.api.auth import router as auth_router
 from app.api.reach import router as reach_router
 from app.api.profiles import router as profiles_router
 from app.api.keywords import router as keywords_router
+from app.api.targeting import router as targeting_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +39,7 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(reach_router, prefix="/api/v1/reach", tags=["reach"])
 app.include_router(profiles_router, prefix="/api/v1/profiles", tags=["profiles"])
 app.include_router(keywords_router, prefix="/api/v1/keywords", tags=["keywords"])
+app.include_router(targeting_router, prefix="/api/v1", tags=["targeting"])
 
 
 @app.get("/health")
