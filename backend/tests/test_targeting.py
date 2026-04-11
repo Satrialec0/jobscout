@@ -66,3 +66,24 @@ def test_extract_keywords_returns_list_for_empty_resume():
 def test_extract_keywords_returns_list_for_blank_resume():
     result = extract_keywords_from_resume("   ")
     assert result == []
+
+
+import ast
+import pathlib
+
+
+def test_targeting_router_functions_exist():
+    src = pathlib.Path("app/api/targeting.py").read_text()
+    tree = ast.parse(src)
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "get_target_keywords" in names
+    assert "add_target_keyword" in names
+    assert "delete_target_keyword" in names
+    assert "reset_target_keywords" in names
+    assert "get_target_signals" in names
+    assert "upsert_target_signals" in names
+    assert "get_companies" in names
+    assert "add_target_company" in names
+    assert "delete_target_company" in names
+    assert "add_block_company" in names
+    assert "delete_block_company" in names
