@@ -163,6 +163,14 @@ function reEvaluateAllCards(): void {
     chrome.storage.local.get([undimKey, dimKey], (data) => {
       if (data[undimKey] || data[dimKey]) return; // User override — skip
       applyVisibility(card, jobId, undefined, cardTitle);
+      // Re-apply highlight for hiring-cafe cards
+      if (site === "hiring-cafe") {
+        const companySpan = card.querySelector<HTMLElement>(
+          "span.font-bold:not([class*='line-clamp'])",
+        );
+        const company = companySpan?.innerText?.trim() ?? "";
+        applyHCHighlight(card, cardTitle, company);
+      }
     });
   });
 }
@@ -267,6 +275,76 @@ function dimCard(card: Element): void {
 
 function undimCard(card: Element): void {
   (card as HTMLElement).style.opacity = "";
+}
+
+function applyHCHighlight(card: Element, title: string, company: string): void {
+  // Don't add highlight if card is already dimmed
+  if ((card as HTMLElement).style.opacity === "0.35") return;
+
+  const titleLower = title.toLowerCase();
+  const companyLower = company.toLowerCase();
+
+  const titleWords = titleLower
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+  const titleNgrams: string[] = [...titleWords];
+  for (let i = 0; i < titleWords.length - 1; i++) {
+    titleNgrams.push(`${titleWords[i]} ${titleWords[i + 1]}`);
+  }
+
+  const targetSignalKeys = titleNgrams.map((ng) => `kw_target_${ng}`);
+  const profileKwKeys = titleNgrams.map((ng) => `kw_target_profile_${ng}`);
+  const companyTargetKey = `company_target_${companyLower}`;
+  const companyBlockKey = `company_block_${companyLower}`;
+
+  chrome.storage.local.get(
+    [...targetSignalKeys, ...profileKwKeys, companyTargetKey, companyBlockKey],
+    (data) => {
+      // Re-check dim state after async read
+      if ((card as HTMLElement).style.opacity === "0.35") return;
+
+      if (data[companyBlockKey]) return;
+
+      let shouldHighlight = false;
+
+      if (data[companyTargetKey]) {
+        shouldHighlight = true;
+      }
+
+      if (!shouldHighlight) {
+        for (const key of profileKwKeys) {
+          if (data[key]) { shouldHighlight = true; break; }
+        }
+      }
+
+      if (!shouldHighlight) {
+        for (const ng of titleNgrams) {
+          const entry = data[`kw_target_${ng}`] as { targetCount: number; showCount: number } | undefined;
+          if (!entry) continue;
+          const total = entry.targetCount + entry.showCount;
+          const confidence = total > 0 ? entry.targetCount / total : 0;
+          if (entry.targetCount >= 3 && confidence >= 0.7) {
+            shouldHighlight = true;
+            break;
+          }
+        }
+      }
+
+      if (shouldHighlight) {
+        (card as HTMLElement).style.boxShadow = "0 0 0 2px #4ade80";
+        (card as HTMLElement).style.borderRadius = "inherit";
+        card.setAttribute("data-jobscout-highlighted", "true");
+      } else {
+        removeHCHighlight(card);
+      }
+    },
+  );
+}
+
+function removeHCHighlight(card: Element): void {
+  (card as HTMLElement).style.boxShadow = "";
+  card.removeAttribute("data-jobscout-highlighted");
 }
 
 function getCardJobId(card: Element): string | null {
@@ -1331,9 +1409,11 @@ function applyHCCardState(
   const existingBtn = card.querySelector("[data-jobscout-vis-btn]");
   if (existingBtn) existingBtn.remove();
   undimCard(card);
+  removeHCHighlight(card);
 
   // Apply visibility — checks user overrides, cache, then keywords
   applyVisibility(card, jobId, undefined, title);
+  applyHCHighlight(card, title, company);
 
   const badgeTarget = titleSpan.closest("div.mt-1");
   if (!badgeTarget) return;
