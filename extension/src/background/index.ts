@@ -117,6 +117,48 @@ async function flushSignals(): Promise<void> {
   });
 }
 
+// ===== TARGET SIGNAL SYNC =====
+
+const dirtyTargetNgrams = new Set<string>();
+let targetSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleTargetSignalSync(): void {
+  if (targetSyncTimer !== null) clearTimeout(targetSyncTimer);
+  targetSyncTimer = setTimeout(() => {
+    targetSyncTimer = null;
+    flushTargetSignals();
+  }, SYNC_DEBOUNCE_MS);
+}
+
+async function flushTargetSignals(): Promise<void> {
+  if (dirtyTargetNgrams.size === 0) return;
+  const toFlush = Array.from(dirtyTargetNgrams);
+  dirtyTargetNgrams.clear();
+
+  const targetKeys = toFlush.map((ng) => `kw_target_${ng}`);
+
+  chrome.storage.local.get(["active_profile_id", ...targetKeys], async (data) => {
+    const profileId = data["active_profile_id"] as number | undefined;
+    if (!profileId) return;
+
+    const payload = toFlush.map((ng) => {
+      const entry = data[`kw_target_${ng}`] as { targetCount: number; showCount: number } | undefined;
+      return {
+        ngram: ng,
+        target_count: entry?.targetCount ?? 0,
+        show_count: entry?.showCount ?? 0,
+      };
+    });
+
+    const headers = await getAuthHeaders();
+    fetch(`${BACKEND_URL}/keywords/target-signals/${profileId}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ signals: payload }),
+    }).catch((err) => console.error("[JobScout BG] Target signal sync failed:", err));
+  });
+}
+
 // Watch for kw_* changes written by the content script
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
@@ -124,8 +166,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (key.startsWith("kw_hide_") || key.startsWith("kw_show_")) {
       dirtyNgrams.add(key.replace(/^kw_(?:hide|show)_/, ""));
     }
+    if (key.startsWith("kw_target_") && !key.startsWith("kw_target_profile_")) {
+      dirtyTargetNgrams.add(key.replace(/^kw_target_/, ""));
+    }
   }
   if (dirtyNgrams.size > 0) scheduleSyncSignals();
+  if (dirtyTargetNgrams.size > 0) scheduleTargetSignalSync();
 });
 
 // Flush on service worker shutdown
@@ -134,7 +180,12 @@ chrome.runtime.onSuspend.addListener(() => {
     clearTimeout(syncTimer);
     syncTimer = null;
   }
+  if (targetSyncTimer !== null) {
+    clearTimeout(targetSyncTimer);
+    targetSyncTimer = null;
+  }
   flushSignals();
+  flushTargetSignals();
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
