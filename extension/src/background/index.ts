@@ -61,6 +61,66 @@ async function seedSignals(profileId: number): Promise<void> {
   }
 }
 
+async function seedTargetKeywords(profileId: number): Promise<void> {
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/profiles/${profileId}/target-keywords`, { headers });
+    if (!r.ok) return;
+    const keywords: Array<{ id: number; keyword: string; source: string }> = await r.json();
+    const updates: Record<string, boolean> = {};
+    for (const kw of keywords) {
+      updates[`kw_target_profile_${kw.keyword}`] = true;
+    }
+    if (Object.keys(updates).length > 0) {
+      chrome.storage.local.set(updates);
+    }
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed target keywords:", err);
+  }
+}
+
+async function seedTargetSignals(profileId: number): Promise<void> {
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/keywords/target-signals/${profileId}`, { headers });
+    if (!r.ok) return;
+    const signals: Array<{ ngram: string; target_count: number; show_count: number }> = await r.json();
+    const updates: Record<string, { targetCount: number; showCount: number }> = {};
+    for (const sig of signals) {
+      updates[`kw_target_${sig.ngram}`] = { targetCount: sig.target_count, showCount: sig.show_count };
+    }
+    if (Object.keys(updates).length > 0) {
+      chrome.storage.local.set(updates);
+    }
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed target signals:", err);
+  }
+}
+
+async function seedCompanies(profileId: number): Promise<void> {
+  const headers = await getAuthHeaders();
+  try {
+    const r = await fetch(`${BACKEND_URL}/companies?profile_id=${profileId}`, { headers });
+    if (!r.ok) return;
+    const data: {
+      targets: Array<{ id: number; name: string }>;
+      blocks: Array<{ id: number; name: string }>;
+    } = await r.json();
+    const updates: Record<string, boolean> = {};
+    for (const c of data.targets) {
+      updates[`company_target_${c.name.toLowerCase()}`] = true;
+    }
+    for (const c of data.blocks) {
+      updates[`company_block_${c.name.toLowerCase()}`] = true;
+    }
+    if (Object.keys(updates).length > 0) {
+      chrome.storage.local.set(updates);
+    }
+  } catch (err) {
+    console.error("[JobScout BG] Failed to seed companies:", err);
+  }
+}
+
 async function seedKeywordData(): Promise<void> {
   await seedBlocklist();
   const headers = await getAuthHeaders();
@@ -71,6 +131,9 @@ async function seedKeywordData(): Promise<void> {
     if (!profile) return;
     chrome.storage.local.set({ active_profile_id: profile.id, active_profile_name: profile.name });
     await seedSignals(profile.id);
+    await seedTargetKeywords(profile.id);
+    await seedTargetSignals(profile.id);
+    await seedCompanies(profile.id);
   } catch (err) {
     console.error("[JobScout BG] Failed to seed keyword data:", err);
   }
@@ -460,11 +523,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       clearTimeout(syncTimer);
       syncTimer = null;
     }
+    if (targetSyncTimer !== null) {
+      clearTimeout(targetSyncTimer);
+      targetSyncTimer = null;
+    }
     flushSignals().then(async () => {
-      // Clear all kw_* keys from local storage
+      await flushTargetSignals();
+      // Clear all per-profile kw_* and targeting keys from local storage
       chrome.storage.local.get(null, async (items) => {
         const keysToRemove = Object.keys(items).filter(
-          (k) => k.startsWith("kw_hide_") || k.startsWith("kw_show_"),
+          (k) =>
+            k.startsWith("kw_hide_") ||
+            k.startsWith("kw_show_") ||
+            k.startsWith("kw_target_") ||
+            k.startsWith("company_target_"),
         );
         if (keysToRemove.length > 0) {
           await new Promise<void>((resolve) =>
@@ -475,6 +547,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // Store new active profile and seed its signals
         chrome.storage.local.set({ active_profile_id: message.profileId, active_profile_name: message.profileName ?? null });
         await seedSignals(message.profileId as number);
+        await seedTargetKeywords(message.profileId as number);
+        await seedTargetSignals(message.profileId as number);
+        await seedCompanies(message.profileId as number);
 
         // Notify all content scripts
         chrome.tabs.query({}, (tabs) => {
