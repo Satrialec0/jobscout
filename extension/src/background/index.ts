@@ -222,6 +222,80 @@ async function flushTargetSignals(): Promise<void> {
   });
 }
 
+function mineTargetSignalsFromAnalysis(
+  greenFlags: string[],
+  company: string,
+  profileId: number,
+): void {
+  if (!profileId) return;
+
+  const allNgrams: string[] = [];
+  for (const flag of greenFlags) {
+    const words = flag
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 2);
+    allNgrams.push(...words);
+    for (let i = 0; i < words.length - 1; i++) {
+      allNgrams.push(`${words[i]} ${words[i + 1]}`);
+    }
+  }
+
+  if (allNgrams.length === 0 && !company) return;
+
+  const targetKeys = allNgrams.map((ng) => `kw_target_${ng}`);
+  chrome.storage.local.get(targetKeys, (data) => {
+    const updates: Record<string, { targetCount: number; showCount: number }> = {};
+    for (const ng of allNgrams) {
+      const existing = (data[`kw_target_${ng}`] as { targetCount: number; showCount: number } | undefined) ?? { targetCount: 0, showCount: 0 };
+      updates[`kw_target_${ng}`] = { targetCount: existing.targetCount + 1, showCount: existing.showCount };
+    }
+    chrome.storage.local.set(updates);
+  });
+
+  if (company) {
+    const key = `company_target_${company.toLowerCase()}`;
+    chrome.storage.local.set({ [key]: true });
+    getAuthHeaders().then((headers) => {
+      chrome.storage.local.get("active_profile_id", (d) => {
+        const pid = d["active_profile_id"] as number | undefined;
+        if (!pid) return;
+        fetch(`${BACKEND_URL}/companies/target`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ name: company, profile_id: pid }),
+        }).catch(() => {});
+      });
+    });
+  }
+}
+
+function mineTargetSignalsFromTitle(title: string): void {
+  const words = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+
+  const ngrams: string[] = [...words];
+  for (let i = 0; i < words.length - 1; i++) {
+    ngrams.push(`${words[i]} ${words[i + 1]}`);
+  }
+
+  if (ngrams.length === 0) return;
+
+  const targetKeys = ngrams.map((ng) => `kw_target_${ng}`);
+  chrome.storage.local.get(targetKeys, (data) => {
+    const updates: Record<string, { targetCount: number; showCount: number }> = {};
+    for (const ng of ngrams) {
+      const existing = (data[`kw_target_${ng}`] as { targetCount: number; showCount: number } | undefined) ?? { targetCount: 0, showCount: 0 };
+      updates[`kw_target_${ng}`] = { targetCount: existing.targetCount + 1, showCount: existing.showCount };
+    }
+    chrome.storage.local.set(updates);
+  });
+}
+
 // Watch for kw_* changes written by the content script
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
@@ -310,6 +384,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetchAnalysis(message.payload)
       .then(async (result) => {
         console.log("[JobScout BG] Analysis complete, fit_score:", result.fit_score);
+        // Mine target signals from high-scoring analyses
+        if (result.fit_score >= 80) {
+          chrome.storage.local.get("active_profile_id", (profileData) => {
+            const profileId = profileData["active_profile_id"] as number | undefined;
+            if (profileId) {
+              mineTargetSignalsFromAnalysis(
+                result.green_flags ?? [],
+                message.payload.company ?? "",
+                profileId,
+              );
+            }
+          });
+        }
         // Read profile name from storage; if missing, fetch it now so the
         // content script always gets a name without depending on login timing.
         const stored = await new Promise<Record<string, unknown>>((resolve) =>
@@ -494,6 +581,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       chrome.storage.local.remove(`status_${message.jobId}`);
     } else {
       chrome.storage.local.set({ [`status_${message.jobId}`]: message.status });
+    }
+
+    // Mine title ngrams when user marks a job as applied
+    if (message.status === "applied" && message.jobId) {
+      chrome.storage.local.get(`score_jobid_${message.jobId}`, (data) => {
+        const stored = data[`score_jobid_${message.jobId}`] as { jobTitle?: string } | undefined;
+        if (stored?.jobTitle) {
+          mineTargetSignalsFromTitle(stored.jobTitle);
+        }
+      });
     }
 
     if (!message.dbId) { sendResponse({ success: true }); return true; }
