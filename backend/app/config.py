@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 720  # 30 days
+    sendgrid_api_key: str | None = None
+    sendgrid_from_email: str | None = None
 
     class Config:
         env_file = str(ENV_PATH)
