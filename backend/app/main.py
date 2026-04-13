@@ -71,10 +71,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.config import get_settings as _get_settings
+_settings = _get_settings()
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # JWT in headers — no cookies needed, wildcard is safe
+    allow_origins=[_settings.frontend_origin],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
