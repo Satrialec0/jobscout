@@ -1619,6 +1619,11 @@ initCardObserver();
 initHiringCafeModalWatcher();
 onUrlChange(window.location.href);
 
+// Sync hiring.cafe session cookies to backend for background scraper
+if (window.location.hostname === 'hiring.cafe') {
+  chrome.runtime.sendMessage({ type: 'HIRING_CAFE_NAVIGATED' });
+}
+
 // Re-evaluate all visible cards when the active profile changes
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "PROFILE_SWITCHED") {
