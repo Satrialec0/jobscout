@@ -62,3 +62,33 @@ def test_scraped_job_item():
     )
     assert item.title == "Engineer"
     assert item.is_read is False
+
+
+# ── Email service tests ───────────────────────────────────────────────────────
+
+from app.services.email import build_match_email_body, build_expiry_email_body
+
+
+def test_build_match_email_body_single():
+    jobs = [{"title": "Software Engineer", "company": "Acme", "apply_url": "https://acme.com/apply"}]
+    body = build_match_email_body(jobs)
+    assert "Software Engineer" in body
+    assert "Acme" in body
+    assert "https://acme.com/apply" in body
+
+
+def test_build_match_email_body_plural():
+    jobs = [
+        {"title": "Engineer", "company": "A", "apply_url": "https://a.com"},
+        {"title": "Analyst", "company": "B", "apply_url": "https://b.com"},
+    ]
+    body = build_match_email_body(jobs)
+    assert "2 new jobs" in body
+    assert "Engineer" in body
+    assert "Analyst" in body
+
+
+def test_build_expiry_email_body():
+    body = build_expiry_email_body()
+    assert "session" in body.lower()
+    assert "hiring.cafe" in body
