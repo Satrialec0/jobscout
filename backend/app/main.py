@@ -77,6 +77,7 @@ _settings = _get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[_settings.frontend_origin],
+    allow_origin_regex=r"chrome-extension://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
