@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 720  # 30 days
     sendgrid_api_key: str | None = None
     sendgrid_from_email: str | None = None
+    frontend_origin: str = "http://localhost:5173"
 
     class Config:
         env_file = str(ENV_PATH)
