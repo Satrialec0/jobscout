@@ -144,3 +144,71 @@ def test_parse_job_missing_company():
     }
     job = parse_job_from_result(raw)
     assert job["company"] == ""
+
+
+# ── scraper_poll service tests ────────────────────────────────────────────────
+
+from app.services.scraper_poll import tokenize_title, job_matches_signals
+
+
+def test_tokenize_title_basic():
+    tokens = tokenize_title("Senior Software Engineer")
+    assert "senior" in tokens
+    assert "software" in tokens
+    assert "engineer" in tokens
+
+
+def test_tokenize_title_strips_punctuation():
+    tokens = tokenize_title("Sr. Engineer (Remote)")
+    assert "engineer" in tokens
+    assert "remote" in tokens
+
+
+def test_job_matches_signals_profile_keyword():
+    job = {"title": "Senior Python Engineer", "company": "Acme"}
+    signals = {
+        "profile_keywords": ["python"],
+        "target_signals": [],
+        "target_companies": [],
+    }
+    assert job_matches_signals(job, signals) is True
+
+
+def test_job_matches_signals_company():
+    job = {"title": "Engineer", "company": "Acme Corp"}
+    signals = {
+        "profile_keywords": [],
+        "target_signals": [],
+        "target_companies": ["acme corp"],
+    }
+    assert job_matches_signals(job, signals) is True
+
+
+def test_job_matches_signals_no_match():
+    job = {"title": "Sales Manager", "company": "Retail Inc"}
+    signals = {
+        "profile_keywords": ["python", "engineer"],
+        "target_signals": [],
+        "target_companies": ["acme"],
+    }
+    assert job_matches_signals(job, signals) is False
+
+
+def test_job_matches_signals_learned():
+    job = {"title": "Data Engineer at Scale", "company": "Unknown"}
+    signals = {
+        "profile_keywords": [],
+        "target_signals": [{"ngram": "data engineer", "target_count": 5, "show_count": 1}],
+        "target_companies": [],
+    }
+    assert job_matches_signals(job, signals) is True
+
+
+def test_job_matches_signals_learned_below_threshold():
+    job = {"title": "Data Engineer", "company": "Unknown"}
+    signals = {
+        "profile_keywords": [],
+        "target_signals": [{"ngram": "data engineer", "target_count": 2, "show_count": 1}],
+        "target_companies": [],
+    }
+    assert job_matches_signals(job, signals) is False
