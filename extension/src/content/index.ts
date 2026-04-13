@@ -1624,6 +1624,88 @@ if (window.location.hostname === 'hiring.cafe') {
   chrome.runtime.sendMessage({ type: 'HIRING_CAFE_NAVIGATED' });
 }
 
+// ── Watch This Search ─────────────────────────────────────────────────────────
+
+let _lastSearchState: Record<string, unknown> | null = null;
+
+function installSearchStateInterceptor(): void {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+    if (url.includes('/api/search-jobs') && url.includes('s=')) {
+      try {
+        const urlObj = new URL(url, window.location.origin);
+        const sParam = urlObj.searchParams.get('s');
+        if (sParam) {
+          _lastSearchState = JSON.parse(decodeURIComponent(sParam));
+        }
+      } catch { /* ignore parse errors */ }
+    }
+    return origFetch(input, init);
+  };
+}
+
+function injectWatchButton(): void {
+  if (document.getElementById('js-watch-search-btn')) return;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (!urlParams.has('searchState')) return;
+
+  const btn = document.createElement('button');
+  btn.id = 'js-watch-search-btn';
+  btn.textContent = '⭐ Watch this search';
+  btn.style.cssText = `
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    background: #4ade80; color: #0f172a; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+
+  btn.addEventListener('click', async () => {
+    if (!_lastSearchState) {
+      btn.textContent = '⚠ No search state captured yet — scroll to trigger a search';
+      return;
+    }
+
+    const searchQuery: string = ((_lastSearchState as Record<string, unknown>)['searchQuery'] as string) || 'Saved Search';
+    const name = `${searchQuery} (${new Date().toLocaleDateString()})`;
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: 'REGISTER_SEARCH',
+        payload: { name, search_state: _lastSearchState },
+      });
+      if (response?.ok) {
+        btn.textContent = '✓ Watching';
+        btn.style.background = '#1e293b';
+        btn.style.color = '#4ade80';
+      } else {
+        btn.textContent = response?.error || 'Error — try again';
+        btn.disabled = false;
+      }
+    } catch {
+      btn.textContent = 'Error — try again';
+      btn.disabled = false;
+    }
+  });
+
+  document.body.appendChild(btn);
+}
+
+// Initialize Watch button on hiring.cafe
+if (window.location.hostname === 'hiring.cafe') {
+  installSearchStateInterceptor();
+  setTimeout(injectWatchButton, 1500);
+  const _origPushState = history.pushState.bind(history);
+  history.pushState = function(...args: Parameters<typeof history.pushState>) {
+    _origPushState(...args);
+    setTimeout(injectWatchButton, 1500);
+  };
+}
+
 // Re-evaluate all visible cards when the active profile changes
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "PROFILE_SWITCHED") {

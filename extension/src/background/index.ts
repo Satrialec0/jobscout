@@ -667,6 +667,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     syncHiringCafeCookies();
     return;
   }
+
+  if (message.type === 'REGISTER_SEARCH') {
+    const { name, search_state } = message.payload as { name: string; search_state: unknown };
+    chrome.storage.local.get('auth_jwt', async (data) => {
+      const jwt = data.auth_jwt as string | undefined;
+      if (!jwt) { sendResponse({ ok: false, error: 'Not logged in' }); return; }
+      try {
+        const r = await fetch(`${BACKEND_URL}/api/v1/scraper/searches`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+          body: JSON.stringify({ name, search_state }),
+        });
+        if (r.ok) {
+          sendResponse({ ok: true });
+        } else {
+          const err = await r.json();
+          sendResponse({ ok: false, error: (err as { detail?: string }).detail || 'Failed to register search' });
+        }
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err) });
+      }
+    });
+    return true;
+  }
 });
 
 async function syncHiringCafeCookies(): Promise<void> {
