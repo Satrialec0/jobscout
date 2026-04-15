@@ -12,12 +12,12 @@ export interface User {
 // ── Job Analysis ──────────────────────────────────────────────────────────────
 
 export interface SalaryEstimate {
-  min: number | null;
-  max: number | null;
+  low: number;
+  high: number;
   currency: string;
-  basis: string;
+  per: string;
   confidence: string;
-  note: string | null;
+  assessment: string | null;
 }
 
 export interface JobHistoryItem {
@@ -36,6 +36,9 @@ export interface JobHistoryItem {
   status: string | null;
   url: string | null;
   created_at: string;
+  applied_date: string | null;
+  profile_id: number | null;
+  profile_name: string | null;
 }
 
 export type AppStatus =
