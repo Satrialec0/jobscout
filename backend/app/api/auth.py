@@ -1,10 +1,11 @@
 import logging
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, Response, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse, UserResponse, ApiKeyRequest, UpdateProfileRequest
 from app.services.auth import hash_password, verify_password, create_access_token
+from app.config import get_settings
 from typing import Optional
 from app.api.deps import get_current_user
 
@@ -104,3 +105,33 @@ async def update_profile(
     db.refresh(current_user)
     logger.info("Profile updated for user: %s (id=%s)", current_user.email, current_user.id)
     return _user_response(current_user)
+
+
+@router.post("/web-login")
+async def web_login(
+    request: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user or not verify_password(request.password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    token = create_access_token(user.id)
+    settings = get_settings()
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=settings.environment == "production",
+        samesite="lax",
+        max_age=60 * 60 * 24 * 7,  # 7 days
+    )
+    logger.info("Web login for user: %s (id=%s)", user.email, user.id)
+    return {"ok": True}
+
+
+@router.post("/web-logout")
+async def web_logout(response: Response) -> dict:
+    response.delete_cookie(key="access_token")
+    return {"ok": True}

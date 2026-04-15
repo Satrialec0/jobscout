@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem, UpdateStatusRequest, ClaimRequest, ClaimResult, ClaimItem, PushStatusRequest
@@ -165,15 +166,32 @@ def get_cached_analysis_by_title_company(db: Session, job_title: str, company: s
 async def get_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    limit: int = 200,
+    limit: int = 25,
+    offset: int = 0,
+    status: Optional[str] = None,
+    site: Optional[str] = None,
+    min_score: Optional[int] = None,
+    max_score: Optional[int] = None,
 ) -> list[JobHistoryItem]:
-    logger.info("Fetching job history for user %s, limit: %s", current_user.id, limit)
+    query = db.query(JobAnalysis).filter(JobAnalysis.user_id == current_user.id)
+    if status:
+        query = query.filter(JobAnalysis.status == status)
+    if site:
+        query = query.filter(JobAnalysis.url.ilike(f"%{site}%"))
+    if min_score is not None:
+        query = query.filter(JobAnalysis.fit_score >= min_score)
+    if max_score is not None:
+        query = query.filter(JobAnalysis.fit_score <= max_score)
     records = (
-        db.query(JobAnalysis)
-        .filter(JobAnalysis.user_id == current_user.id)
+        query
         .order_by(JobAnalysis.created_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
+    )
+    logger.info(
+        "Fetching history for user %s: limit=%s offset=%s status=%s",
+        current_user.id, limit, offset, status,
     )
     return records
 
