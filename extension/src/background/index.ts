@@ -668,13 +668,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return;
   }
 
+  if (message.type === 'GET_SAVED_SEARCHES') {
+    chrome.storage.local.get('auth_jwt', async (data) => {
+      const jwt = data.auth_jwt as string | undefined;
+      if (!jwt) { sendResponse({ ok: false, searches: [] }); return; }
+      try {
+        const r = await fetch(`${BACKEND_URL}/scraper/searches`, {
+          headers: { 'Authorization': `Bearer ${jwt}` },
+        });
+        if (r.ok) {
+          const searches = await r.json();
+          sendResponse({ ok: true, searches });
+        } else {
+          sendResponse({ ok: false, searches: [] });
+        }
+      } catch {
+        sendResponse({ ok: false, searches: [] });
+      }
+    });
+    return true;
+  }
+
   if (message.type === 'REGISTER_SEARCH') {
     const { name, search_state } = message.payload as { name: string; search_state: unknown };
     chrome.storage.local.get('auth_jwt', async (data) => {
       const jwt = data.auth_jwt as string | undefined;
       if (!jwt) { sendResponse({ ok: false, error: 'Not logged in' }); return; }
       try {
-        const r = await fetch(`${BACKEND_URL}/api/v1/scraper/searches`, {
+        const r = await fetch(`${BACKEND_URL}/scraper/searches`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
           body: JSON.stringify({ name, search_state }),

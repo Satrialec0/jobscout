@@ -1628,82 +1628,98 @@ if (window.location.hostname === 'hiring.cafe') {
 
 let _lastSearchState: Record<string, unknown> | null = null;
 
-function installSearchStateInterceptor(): void {
-  const origFetch = window.fetch.bind(window);
-  window.fetch = async function(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
-    if (url.includes('/api/search-jobs') && url.includes('s=')) {
-      try {
-        const urlObj = new URL(url, window.location.origin);
-        const sParam = urlObj.searchParams.get('s');
-        if (sParam) {
-          _lastSearchState = JSON.parse(decodeURIComponent(sParam));
-        }
-      } catch { /* ignore parse errors */ }
-    }
-    return origFetch(input, init);
-  };
+/** Stable JSON string for comparison — sorts keys so ordering differences don't matter. */
+function stableJson(obj: unknown): string {
+  if (typeof obj !== 'object' || obj === null) return JSON.stringify(obj);
+  if (Array.isArray(obj)) return `[${obj.map(stableJson).join(',')}]`;
+  const sorted = Object.keys(obj as object).sort();
+  return `{${sorted.map((k) => `${JSON.stringify(k)}:${stableJson((obj as Record<string, unknown>)[k])}`).join(',')}}`;
 }
 
-function injectWatchButton(): void {
-  if (document.getElementById('js-watch-search-btn')) return;
+function injectWatchButton(searchStateParam: string): void {
+  document.getElementById('js-watch-search-btn')?.remove();
 
-  const urlParams = new URLSearchParams(window.location.search);
-  if (!urlParams.has('searchState')) return;
+  let parsedState: Record<string, unknown>;
+  try {
+    parsedState = JSON.parse(decodeURIComponent(searchStateParam));
+  } catch {
+    return;
+  }
+  _lastSearchState = parsedState;
 
   const btn = document.createElement('button');
   btn.id = 'js-watch-search-btn';
-  btn.textContent = '⭐ Watch this search';
   btn.style.cssText = `
     position: fixed; bottom: 24px; right: 24px; z-index: 9999;
-    background: #4ade80; color: #0f172a; border: none; border-radius: 8px;
+    border: none; border-radius: 8px;
     padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   `;
 
-  btn.addEventListener('click', async () => {
-    if (!_lastSearchState) {
-      btn.textContent = '⚠ No search state captured yet — scroll to trigger a search';
-      return;
+  const currentNorm = stableJson(parsedState);
+
+  // Ask the background for the current saved searches to determine watched state
+  chrome.runtime.sendMessage({ type: 'GET_SAVED_SEARCHES' }, (response) => {
+    const searches: Array<{ search_state: unknown }> = response?.searches ?? [];
+    const alreadyWatched = searches.some((s) => stableJson(s.search_state) === currentNorm);
+
+    if (alreadyWatched) {
+      btn.textContent = '✓ Watching';
+      btn.disabled = true;
+      btn.style.background = '#1e293b';
+      btn.style.color = '#4ade80';
+    } else {
+      btn.textContent = '⭐ Watch this search';
+      btn.style.background = '#4ade80';
+      btn.style.color = '#0f172a';
     }
 
-    const searchQuery: string = ((_lastSearchState as Record<string, unknown>)['searchQuery'] as string) || 'Saved Search';
-    const name = `${searchQuery} (${new Date().toLocaleDateString()})`;
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const searchQuery = (parsedState['searchQuery'] as string) || 'Saved Search';
+      const name = `${searchQuery} (${new Date().toLocaleDateString()})`;
 
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
 
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'REGISTER_SEARCH',
-        payload: { name, search_state: _lastSearchState },
-      });
-      if (response?.ok) {
-        btn.textContent = '✓ Watching';
-        btn.style.background = '#1e293b';
-        btn.style.color = '#4ade80';
-      } else {
-        btn.textContent = response?.error || 'Error — try again';
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'REGISTER_SEARCH',
+          payload: { name, search_state: parsedState },
+        });
+        if (response?.ok) {
+          btn.textContent = '✓ Watching';
+          btn.style.background = '#1e293b';
+          btn.style.color = '#4ade80';
+        } else {
+          btn.textContent = response?.error || 'Error — try again';
+          btn.disabled = false;
+        }
+      } catch {
+        btn.textContent = 'Error — try again';
         btn.disabled = false;
       }
-    } catch {
-      btn.textContent = 'Error — try again';
-      btn.disabled = false;
-    }
-  });
+    });
 
-  document.body.appendChild(btn);
+    document.body.appendChild(btn);
+  });
 }
 
-// Initialize Watch button on hiring.cafe
+// Initialize Watch button on hiring.cafe — poll for searchState changes every 750ms
 if (window.location.hostname === 'hiring.cafe') {
-  installSearchStateInterceptor();
-  setTimeout(injectWatchButton, 1500);
-  const _origPushState = history.pushState.bind(history);
-  history.pushState = function(...args: Parameters<typeof history.pushState>) {
-    _origPushState(...args);
-    setTimeout(injectWatchButton, 1500);
-  };
+  let _trackedParam = '';
+
+  setInterval(() => {
+    const current = new URLSearchParams(window.location.search).get('searchState') ?? '';
+    if (current === _trackedParam) return;
+    _trackedParam = current;
+    if (current) {
+      injectWatchButton(current);
+    } else {
+      document.getElementById('js-watch-search-btn')?.remove();
+      _lastSearchState = null;
+    }
+  }, 750);
 }
 
 // Re-evaluate all visible cards when the active profile changes

@@ -117,8 +117,8 @@ function JobCard({ job }: { job: ScrapedJob }) {
               {analysis.salary_estimate && (
                 <p className="text-xs text-muted">
                   Salary:{" "}
-                  {analysis.salary_estimate.min && analysis.salary_estimate.max
-                    ? `$${analysis.salary_estimate.min.toLocaleString()} – $${analysis.salary_estimate.max.toLocaleString()}`
+                  {analysis.salary_estimate.low && analysis.salary_estimate.high
+                    ? `$${analysis.salary_estimate.low.toLocaleString()} – $${analysis.salary_estimate.high.toLocaleString()}`
                     : "Not available"}
                 </p>
               )}

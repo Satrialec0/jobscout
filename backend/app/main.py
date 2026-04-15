@@ -74,9 +74,13 @@ app = FastAPI(
 from app.config import get_settings as _get_settings
 _settings = _get_settings()
 
+_allowed_origins = [_settings.frontend_origin]
+if _settings.extra_origins:
+    _allowed_origins += [o.strip() for o in _settings.extra_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[_settings.frontend_origin],
+    allow_origins=_allowed_origins,
     allow_origin_regex=r"chrome-extension://.*",
     allow_credentials=True,
     allow_methods=["*"],
@@ -100,11 +104,21 @@ async def health_check():
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "web")
 
 
+def _serve_index() -> FileResponse:
+    index = os.path.join(_static_dir, "index.html")
+    return FileResponse(
+        index,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.get("/")
 async def root():
-    index = os.path.join(_static_dir, "index.html")
-    if os.path.isfile(index):
-        return FileResponse(index)
+    if os.path.isfile(os.path.join(_static_dir, "index.html")):
+        return _serve_index()
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/login.html")
 
@@ -116,7 +130,6 @@ async def serve_static(filename: str):
     if os.path.isfile(file_path):
         return FileResponse(file_path)
     # SPA fallback: serve index.html for any unknown path so React Router works
-    index = os.path.join(_static_dir, "index.html")
-    if os.path.isfile(index):
-        return FileResponse(index)
+    if os.path.isfile(os.path.join(_static_dir, "index.html")):
+        return _serve_index()
     raise HTTPException(status_code=404, detail=f"File not found: {filename}")
