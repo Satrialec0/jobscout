@@ -1,50 +1,75 @@
 # JobScout
 
-A full-stack browser extension that analyzes job listings in real time and scores your fit using Claude AI. Built as a portfolio project to demonstrate full-stack development across a Python backend, PostgreSQL database, Chrome extension, and LLM integration.
-
-![JobScout Demo](docs/demo.png)
+A full-stack job search platform built around a Chrome extension that scores job listings in real time using Claude AI. Built as a portfolio project spanning a Python backend, PostgreSQL database, React web app, Chrome extension, and background automation.
 
 ## What it does
 
-As you browse job listings on LinkedIn, JobScout automatically extracts the job description, sends it to a local backend, and scores your fit against a detailed candidate profile using Claude. Results appear in a popup with a fit score, apply recommendation, matched skills, transferable experience, gaps, and flags — without leaving the page.
+JobScout connects every part of a job search into one system:
 
-- **Automatic scoring** — triggers on every new job listing as you click through LinkedIn
-- **Cached results** — previously scored jobs return instantly with no API call
-- **Structured analysis** — direct matches, transferable skills, gaps, and red/green flags
-- **Job history** — every scored job saved to PostgreSQL for later review
+**Real-time scoring** — As you browse LinkedIn, Indeed, or Hiring.cafe, the extension extracts job details and scores your fit (0–100) using Claude. Results appear inline on job cards and in the toolbar popup with matched skills, transferable experience, gaps, and flags — without leaving the page.
+
+**Web app** — A companion React app lets you review your full job history, filter by score, status, site, or recency, and see an application funnel (applied → phone screen → interviewed → offer) with response and offer rates.
+
+**Background scraper** — Save searches on Hiring.cafe and the backend polls them on a schedule, scores new matches against your profile, and emails results via SendGrid.
+
+**Multi-profile support** — Maintain separate resume profiles and score jobs against whichever profile is active, keeping history and recommendations per-profile.
+
+**Application tracking** — Track each job through a 6-state lifecycle (applied → phone screen → interviewed → offer → rejected) from either the extension or the web app.
+
+**Keyword learning** — The extension observes which jobs you engage with and which you skip, building per-user keyword weights that automatically surface better matches over time.
 
 ## Architecture
 
 ```
 Chrome Extension (Manifest V3 + TypeScript)
-├── Content script     → Extracts job data from LinkedIn DOM
-├── Background worker  → Routes API calls outside LinkedIn's CSP
-└── Popup UI           → Displays score ring, verdict, and breakdown
+├── Content script      → Extracts job data from LinkedIn / Indeed / Hiring.cafe DOM
+├── Background worker   → API relay (CSP bypass), score cache, message dispatch
+├── Popup UI            → Score ring, verdict, and skills breakdown
+├── Dashboard page      → Job history, status tracking, keyword management
+└── Extension pages     → Login, interview prep, app assist
 
 FastAPI Backend (Python)
-├── /api/v1/analyze    → Scores a job description via Claude API
-├── /api/v1/history    → Returns previously scored jobs
-└── /health            → Health check
+├── /api/v1/analyze     → Score a job via Claude; cache by URL
+├── /api/v1/history     → Paginated, filtered job history with stats
+├── /auth/*             → JWT auth (register, login, web login w/ HTTP-only cookie)
+├── /scraper/*          → Saved searches, credentials, scraped job results
+├── /profiles/*         → Resume profile management
+├── /keywords/*         → Keyword weight read/write
+├── /targeting/*        → Reach/targeting job scoring
+└── /health             → Health check
+
+React Web App (Vite + Tailwind + shadcn/ui)
+├── Served by FastAPI from backend/app/static/web/
+├── JWT auth via HTTP-only cookie
+└── Pages: Job History, While You Were Gone, Filters, Targeting, Account
 
 PostgreSQL Database
-└── job_analyses       → Cached scores, full breakdown, timestamps
-
-Claude API (claude-sonnet-4-20250514)
-└── Structured JSON output with fit_score, matches, gaps, flags
+├── job_analyses        → Cached scores, full breakdown, application status
+├── users               → Accounts with hashed passwords
+├── user_profiles       → Multiple resume profiles per user
+├── scraper_searches    → Saved Hiring.cafe searches
+├── scraper_credentials → Encrypted site credentials
+├── scraped_jobs        → Background scraper results
+├── keyword_weights     → Per-user keyword learning signals
+└── targeting_jobs      → Reach/targeting job queue
 ```
 
 ## Tech stack
 
-| Layer              | Technology                       |
-| ------------------ | -------------------------------- |
-| Browser extension  | TypeScript, Manifest V3, Webpack |
-| Backend framework  | Python, FastAPI, Uvicorn         |
-| AI integration     | Anthropic Claude API             |
-| Database           | PostgreSQL 16, SQLAlchemy ORM    |
-| Migrations         | Alembic                          |
-| Data validation    | Pydantic v2                      |
-| Containerization   | Docker, Docker Compose           |
-| Package management | uv (Python), pnpm (Node)         |
+| Layer              | Technology                                      |
+| ------------------ | ----------------------------------------------- |
+| Browser extension  | TypeScript, Manifest V3, Webpack                |
+| Web frontend       | React, Vite, Tailwind CSS, shadcn/ui            |
+| Backend framework  | Python, FastAPI, Uvicorn                        |
+| AI integration     | Anthropic Claude API                            |
+| Database           | PostgreSQL 16, SQLAlchemy ORM                   |
+| Migrations         | Alembic                                         |
+| Data validation    | Pydantic v2                                     |
+| Auth               | JWT (PyJWT), HTTP-only cookies, Fernet encryption|
+| Background jobs    | APScheduler                                     |
+| Email              | SendGrid                                        |
+| Containerization   | Docker, Docker Compose                          |
+| Package management | uv (Python), pnpm (Node)                        |
 
 ## Project structure
 
@@ -52,48 +77,63 @@ Claude API (claude-sonnet-4-20250514)
 jobscout/
 ├── backend/
 │   ├── app/
-│   │   ├── api/           # Route handlers
+│   │   ├── api/           # Route handlers (analyze, auth, scraper, profiles, keywords, targeting)
 │   │   ├── models/        # SQLAlchemy ORM models + repository pattern
-│   │   ├── schemas/       # Pydantic request/response schemas
-│   │   ├── services/      # Claude API client and scoring logic
-│   │   ├── prompts/       # System prompt templates
+│   │   ├── schemas/       # Pydantic request/response models
+│   │   ├── services/      # Claude, auth, email, hiring.cafe fetcher, scraper poll, encryption
+│   │   ├── static/web/    # Compiled React SPA (served by FastAPI)
 │   │   ├── config.py      # Environment-based settings
 │   │   ├── database.py    # Session management
-│   │   └── main.py        # FastAPI app + middleware
+│   │   └── main.py        # FastAPI app, middleware, APScheduler startup
 │   ├── alembic/           # Database migrations
-│   ├── tests/             # pytest test suite
-│   └── requirements.txt
+│   └── tests/             # pytest test suite
 ├── extension/
 │   ├── src/
-│   │   ├── content/       # DOM scraper + URL watcher
-│   │   ├── background/    # Service worker + backend relay
-│   │   └── popup/         # Score display UI
-│   ├── public/            # manifest.json + popup.html
+│   │   ├── background/    # Service worker — API relay, score cache, message dispatch
+│   │   ├── content/       # URL watcher, DOM scrapers, inline badge, overlay
+│   │   │   └── extractors/ # LinkedIn, Indeed, Hiring.cafe
+│   │   ├── popup/         # Score ring UI
+│   │   ├── dashboard/     # Job history table + keyword management
+│   │   ├── login/         # Extension login page
+│   │   ├── interview/     # Interview prep page
+│   │   └── app-assist/    # Application assist page
+│   ├── public/            # manifest.json + HTML shells
 │   └── webpack.config.js
+├── frontend/              # React web app source
+│   └── src/
+│       ├── api/           # Typed API clients
+│       ├── components/    # Shared UI (ScoreRing, StatusPill, Layout, shadcn)
+│       ├── pages/         # JobHistory, WhileYouWereGone, Filters, Targeting, Login, Account
+│       ├── hooks/         # useAuth
+│       └── types/
+├── deploy-web.sh          # Build frontend → copy to backend/app/static/web/
 └── docker-compose.yml
 ```
 
 ## Key engineering decisions
 
-**Background worker as CSP bypass** — LinkedIn's Content Security Policy blocks outbound fetch calls from page-injected scripts. The content script extracts job data and passes it via `chrome.runtime.sendMessage` to the background service worker, which runs in the extension's own context and is not subject to the page's CSP.
+**Background worker as CSP bypass** — LinkedIn's Content Security Policy blocks outbound fetch calls from page-injected scripts. The content script passes job data via `chrome.runtime.sendMessage` to the background service worker, which runs in the extension's own context and is not subject to page CSP.
 
-**SPA URL watcher** — LinkedIn is a single-page application. Rather than relying on page load events, a persistent `MutationObserver` monitors DOM changes and detects URL transitions, triggering a fresh analysis cycle on each new job without requiring a page reload.
+**SPA URL watcher** — LinkedIn and Hiring.cafe are single-page applications. A persistent `MutationObserver` monitors DOM changes and detects URL transitions, triggering a fresh analysis cycle on each new job without requiring a page reload.
 
-**Repository pattern** — Database logic is separated from API route handlers via a repository layer, keeping the route handlers thin and the data access logic testable in isolation.
+**Web app served from FastAPI** — Rather than deploying the React app separately, `deploy-web.sh` compiles the Vite bundle and copies it into `backend/app/static/web/`. FastAPI serves the SPA with a catch-all route for client-side routing. One deployment, one domain.
 
-**URL-based caching** — Analyzed jobs are cached in PostgreSQL keyed by URL. Repeat visits to the same listing return instantly with zero API cost.
+**User-supplied API keys** — The backend no longer holds a single Anthropic API key. Each user provides their own key, stored encrypted with Fernet, so the platform scales to multiple users without sharing API quota.
 
-**Structured LLM output** — The Claude prompt specifies an exact JSON schema with strict field requirements. The scoring service validates and parses the response into typed Pydantic models, ensuring the extension always receives machine-readable data regardless of model output variation.
+**URL-based caching** — Analyzed jobs are cached in PostgreSQL keyed by URL. Repeat visits return instantly with zero API cost. Hiring.cafe uses title + company as a fallback key due to dynamic URLs.
+
+**Fernet encryption for credentials** — Hiring.cafe session cookies and API keys are stored encrypted at rest. The encryption key is held only in the server environment, never in the database.
+
+**Repository pattern** — Database logic is isolated behind a repository layer, keeping route handlers thin and data access testable in isolation.
 
 ## Local setup
 
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 18+
+- Node.js 18+ and pnpm
 - Docker Desktop
 - Chrome browser
-- Anthropic API key
 
 ### Backend
 
@@ -104,13 +144,13 @@ docker compose up -d
 # Install dependencies
 cd backend
 uv venv
-.venv\Scripts\Activate.ps1     # Windows
-source .venv/bin/activate       # macOS/Linux
+source .venv/bin/activate   # macOS/Linux
+.venv\Scripts\Activate.ps1  # Windows
 uv pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env and add your ANTHROPIC_API_KEY
+# Edit .env — see Environment Variables below
 
 # Run migrations
 alembic upgrade head
@@ -119,7 +159,19 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-API docs available at `http://127.0.0.1:8000/docs`
+API docs at `http://127.0.0.1:8000/docs`
+
+### Web app
+
+```bash
+cd frontend
+pnpm install
+pnpm dev        # Dev server at localhost:5173
+
+# Or build and deploy into the backend:
+cd ..
+./deploy-web.sh  # compiles and copies to backend/app/static/web/
+```
 
 ### Chrome extension
 
@@ -131,68 +183,20 @@ pnpm build
 
 1. Open Chrome → `chrome://extensions`
 2. Enable **Developer mode**
-3. Click **Load unpacked** → select `extension/dist/`
-4. Navigate to any LinkedIn job listing
+3. **Load unpacked** → select `extension/dist/`
 
-### Running both together
+After any source change: `pnpm build`, then click the reload icon on the extension card.
 
-Keep the backend running in one terminal and the extension loaded in Chrome. The extension connects to `http://127.0.0.1:8000` automatically.
+### Environment variables (`backend/.env`)
 
-## API reference
-
-### POST /api/v1/analyze
-
-Scores a job description against the candidate profile.
-
-**Request:**
-
-```json
-{
-  "job_title": "Solutions Engineer",
-  "company": "Nexamp",
-  "job_description": "...",
-  "url": "https://linkedin.com/jobs/view/..."
-}
-```
-
-**Response:**
-
-```json
-{
-  "fit_score": 85,
-  "should_apply": true,
-  "one_line_verdict": "Strong match leveraging solar experience and RFP expertise.",
-  "direct_matches": [{ "item": "...", "detail": "..." }],
-  "transferable": [{ "item": "...", "detail": "..." }],
-  "gaps": [{ "item": "...", "detail": "..." }],
-  "red_flags": ["..."],
-  "green_flags": ["..."]
-}
-```
-
-### GET /api/v1/history
-
-Returns previously scored jobs ordered by most recent.
-
-**Query params:** `limit` (default: 20)
-
-## Scoring rubric
-
-| Score    | Recommendation                              |
-| -------- | ------------------------------------------- |
-| 80–100   | Strong match — apply immediately            |
-| 60–79    | Good match with minor gaps — worth applying |
-| 40–59    | Partial match — apply only if high priority |
-| Below 40 | Significant gaps — not recommended          |
-
-## Roadmap
-
-- [ ] Score badge injected inline on LinkedIn job cards
-- [ ] Indeed and Hiring.cafe DOM scrapers
-- [ ] Dashboard UI for browsing job history with filters
-- [ ] Export scored jobs to CSV
-- [ ] Configurable candidate profile via settings UI
-- [ ] Test suite with pytest + httpx
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `ENCRYPTION_KEY` | Yes | Fernet key — generate with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `JWT_SECRET` | Yes | Secret for signing JWT tokens |
+| `ENVIRONMENT` | No | `development` or `production` (default: `development`) |
+| `SENDGRID_API_KEY` | No | For scraper email notifications |
+| `SENDGRID_FROM_EMAIL` | No | Sender address for scraper emails |
 
 ## License
 
