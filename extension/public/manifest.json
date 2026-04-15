@@ -3,7 +3,7 @@
   "name": "JobScout",
   "version": "0.1.0",
   "description": "Real-time job fit scoring as you browse",
-  "permissions": ["activeTab", "storage", "tabs", "windows"],
+  "permissions": ["activeTab", "storage", "tabs", "windows", "cookies"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://www.indeed.com/*",
