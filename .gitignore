@@ -28,4 +28,9 @@ Thumbs.db
 
 # Docker
 *.log
-```
+
+# Test databases
+*.db
+
+# Superpowers (Claude Code internal)
+.superpowers/
