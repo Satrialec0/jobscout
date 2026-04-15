@@ -25,7 +25,13 @@ Thumbs.db
 
 # Claude Code — device-specific, not shared
 .claude/settings.local.json
+.claude/worktrees/
+
+# Superpowers (Claude Code internal)
+.superpowers/
 
 # Docker
 *.log
-```
+
+# Test databases
+*.db
