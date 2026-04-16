@@ -71,10 +71,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from app.config import get_settings as _get_settings
+_settings = _get_settings()
+
+_allowed_origins = [_settings.frontend_origin]
+if _settings.extra_origins:
+    _allowed_origins += [o.strip() for o in _settings.extra_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # JWT in headers — no cookies needed, wildcard is safe
+    allow_origins=_allowed_origins,
+    allow_origin_regex=r"chrome-extension://.*",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -96,15 +104,32 @@ async def health_check():
 _static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "web")
 
 
+def _serve_index() -> FileResponse:
+    index = os.path.join(_static_dir, "index.html")
+    return FileResponse(
+        index,
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.get("/")
 async def root():
+    if os.path.isfile(os.path.join(_static_dir, "index.html")):
+        return _serve_index()
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/login.html")
 
 
-@app.get("/{filename}")
+@app.get("/{filename:path}")
 async def serve_static(filename: str):
+    # Serve the exact file if it exists (JS/CSS/assets)
     file_path = os.path.join(_static_dir, filename)
     if os.path.isfile(file_path):
         return FileResponse(file_path)
+    # SPA fallback: serve index.html for any unknown path so React Router works
+    if os.path.isfile(os.path.join(_static_dir, "index.html")):
+        return _serve_index()
     raise HTTPException(status_code=404, detail=f"File not found: {filename}")

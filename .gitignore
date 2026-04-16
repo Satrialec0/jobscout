@@ -35,3 +35,6 @@ Thumbs.db
 
 # Test databases
 *.db
+
+# Superpowers (Claude Code internal)
+.superpowers/

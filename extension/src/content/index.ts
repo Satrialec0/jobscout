@@ -1619,6 +1619,109 @@ initCardObserver();
 initHiringCafeModalWatcher();
 onUrlChange(window.location.href);
 
+// Sync hiring.cafe session cookies to backend for background scraper
+if (window.location.hostname === 'hiring.cafe') {
+  chrome.runtime.sendMessage({ type: 'HIRING_CAFE_NAVIGATED' });
+}
+
+// ── Watch This Search ─────────────────────────────────────────────────────────
+
+let _lastSearchState: Record<string, unknown> | null = null;
+
+/** Stable JSON string for comparison — sorts keys so ordering differences don't matter. */
+function stableJson(obj: unknown): string {
+  if (typeof obj !== 'object' || obj === null) return JSON.stringify(obj);
+  if (Array.isArray(obj)) return `[${obj.map(stableJson).join(',')}]`;
+  const sorted = Object.keys(obj as object).sort();
+  return `{${sorted.map((k) => `${JSON.stringify(k)}:${stableJson((obj as Record<string, unknown>)[k])}`).join(',')}}`;
+}
+
+function injectWatchButton(searchStateParam: string): void {
+  document.getElementById('js-watch-search-btn')?.remove();
+
+  let parsedState: Record<string, unknown>;
+  try {
+    parsedState = JSON.parse(decodeURIComponent(searchStateParam));
+  } catch {
+    return;
+  }
+  _lastSearchState = parsedState;
+
+  const btn = document.createElement('button');
+  btn.id = 'js-watch-search-btn';
+  btn.style.cssText = `
+    position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+    border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+
+  const currentNorm = stableJson(parsedState);
+
+  // Ask the background for the current saved searches to determine watched state
+  chrome.runtime.sendMessage({ type: 'GET_SAVED_SEARCHES' }, (response) => {
+    const searches: Array<{ search_state: unknown }> = response?.searches ?? [];
+    const alreadyWatched = searches.some((s) => stableJson(s.search_state) === currentNorm);
+
+    if (alreadyWatched) {
+      btn.textContent = '✓ Watching';
+      btn.disabled = true;
+      btn.style.background = '#1e293b';
+      btn.style.color = '#4ade80';
+    } else {
+      btn.textContent = '⭐ Watch this search';
+      btn.style.background = '#4ade80';
+      btn.style.color = '#0f172a';
+    }
+
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      const searchQuery = (parsedState['searchQuery'] as string) || 'Saved Search';
+      const name = `${searchQuery} (${new Date().toLocaleDateString()})`;
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'REGISTER_SEARCH',
+          payload: { name, search_state: parsedState },
+        });
+        if (response?.ok) {
+          btn.textContent = '✓ Watching';
+          btn.style.background = '#1e293b';
+          btn.style.color = '#4ade80';
+        } else {
+          btn.textContent = response?.error || 'Error — try again';
+          btn.disabled = false;
+        }
+      } catch {
+        btn.textContent = 'Error — try again';
+        btn.disabled = false;
+      }
+    });
+
+    document.body.appendChild(btn);
+  });
+}
+
+// Initialize Watch button on hiring.cafe — poll for searchState changes every 750ms
+if (window.location.hostname === 'hiring.cafe') {
+  let _trackedParam = '';
+
+  setInterval(() => {
+    const current = new URLSearchParams(window.location.search).get('searchState') ?? '';
+    if (current === _trackedParam) return;
+    _trackedParam = current;
+    if (current) {
+      injectWatchButton(current);
+    } else {
+      document.getElementById('js-watch-search-btn')?.remove();
+      _lastSearchState = null;
+    }
+  }, 750);
+}
+
 // Re-evaluate all visible cards when the active profile changes
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "PROFILE_SWITCHED") {

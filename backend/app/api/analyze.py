@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, status
 from sqlalchemy.orm import Session
 from app.schemas.analyze import AnalyzeRequest, AnalyzeResponse, JobHistoryItem, UpdateStatusRequest, ClaimRequest, ClaimResult, ClaimItem, PushStatusRequest
@@ -161,19 +162,101 @@ def get_cached_analysis_by_title_company(db: Session, job_title: str, company: s
     )
 
 
+@router.get("/history/stats")
+async def get_history_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    profile_id: Optional[int] = None,
+) -> dict:
+    from sqlalchemy import func, case
+    q = db.query(JobAnalysis).filter(JobAnalysis.user_id == current_user.id)
+    if profile_id is not None:
+        q = q.filter(JobAnalysis.profile_id == profile_id)
+    total = q.count()
+    recs = q.filter(JobAnalysis.should_apply == True).count()
+    high = q.filter(JobAnalysis.fit_score >= 70).count()
+    avg_row = db.query(func.avg(JobAnalysis.fit_score)).filter(
+        JobAnalysis.user_id == current_user.id,
+        *([JobAnalysis.profile_id == profile_id] if profile_id is not None else []),
+    ).scalar()
+    avg_score = round(avg_row or 0)
+    statuses = {
+        "applied": 0, "phone_screen": 0, "interviewed": 0, "offer": 0, "rejected": 0,
+    }
+    for row in (
+        db.query(JobAnalysis.status, func.count())
+        .filter(JobAnalysis.user_id == current_user.id, JobAnalysis.status.isnot(None))
+        .group_by(JobAnalysis.status)
+        .all()
+    ):
+        if row[0] in statuses:
+            statuses[row[0]] = row[1]
+    applied_count = statuses["applied"]
+    response_rate = round(statuses["phone_screen"] / applied_count * 100) if applied_count else 0
+    offer_rate = round(statuses["offer"] / applied_count * 100) if applied_count else 0
+    return {
+        "total": total,
+        "recs": recs,
+        "high_score": high,
+        "avg_score": avg_score,
+        **statuses,
+        "response_rate": response_rate,
+        "offer_rate": offer_rate,
+    }
+
+
 @router.get("/history", response_model=list[JobHistoryItem])
 async def get_history(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    limit: int = 200,
+    limit: int = 25,
+    offset: int = 0,
+    search: Optional[str] = None,
+    status: Optional[str] = None,
+    site: Optional[str] = None,
+    min_score: Optional[int] = None,
+    max_score: Optional[int] = None,
+    recommend: Optional[bool] = None,
+    applied: Optional[bool] = None,
+    days: Optional[int] = None,
+    profile_id: Optional[int] = None,
 ) -> list[JobHistoryItem]:
-    logger.info("Fetching job history for user %s, limit: %s", current_user.id, limit)
+    from datetime import timedelta
+    query = db.query(JobAnalysis).filter(JobAnalysis.user_id == current_user.id)
+    if search:
+        term = f"%{search}%"
+        query = query.filter(
+            JobAnalysis.job_title.ilike(term) | JobAnalysis.company.ilike(term)
+        )
+    if status:
+        query = query.filter(JobAnalysis.status == status)
+    if site:
+        query = query.filter(JobAnalysis.url.ilike(f"%{site}%"))
+    if min_score is not None:
+        query = query.filter(JobAnalysis.fit_score >= min_score)
+    if max_score is not None:
+        query = query.filter(JobAnalysis.fit_score <= max_score)
+    if recommend is not None:
+        query = query.filter(JobAnalysis.should_apply == recommend)
+    if applied is True:
+        query = query.filter(JobAnalysis.status.isnot(None))
+    elif applied is False:
+        query = query.filter(JobAnalysis.status.is_(None))
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        query = query.filter(JobAnalysis.created_at >= cutoff)
+    if profile_id is not None:
+        query = query.filter(JobAnalysis.profile_id == profile_id)
     records = (
-        db.query(JobAnalysis)
-        .filter(JobAnalysis.user_id == current_user.id)
+        query
         .order_by(JobAnalysis.created_at.desc())
+        .offset(offset)
         .limit(limit)
         .all()
+    )
+    logger.info(
+        "Fetching history for user %s: limit=%s offset=%s status=%s",
+        current_user.id, limit, offset, status,
     )
     return records
 

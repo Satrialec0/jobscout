@@ -208,6 +208,30 @@ function saveStatus(jobId: string, status: AppStatus, dbId?: number, appliedDate
       status,
       appliedDate: status === "applied" && appliedDate ? new Date(appliedDate).toISOString() : null,
     });
+  } else {
+    // Fallback: look up dbId from stored score and PATCH directly
+    (async () => {
+      try {
+        const stored = await new Promise<Record<string, unknown>>((resolve) =>
+          chrome.storage.local.get(
+            [`score_jobid_${jobId}`, "auth_jwt"] as string[],
+            (items) => resolve(items as Record<string, unknown>),
+          ),
+        );
+        const jwt = stored["auth_jwt"] as string | undefined;
+        const score = stored[`score_jobid_${jobId}`] as { dbId?: number } | undefined;
+        const resolvedDbId = score?.dbId;
+        if (!jwt || !resolvedDbId) return;
+        await fetch(`${process.env.BACKEND_URL}/job/${resolvedDbId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${jwt}` },
+          body: JSON.stringify({
+            status,
+            ...(status === "applied" && appliedDate ? { applied_date: new Date(appliedDate).toISOString() } : {}),
+          }),
+        });
+      } catch { /* non-blocking */ }
+    })();
   }
 }
 
