@@ -16,7 +16,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: jobscout_tunnel
-    command: tunnel --no-autoupdate run --token eyJhIjoiYzMyNTMwMDhmNDc5NmViMzkxMGM1OTgxMmE0MzU1ODAiLCJ0IjoiYTNhYWQ5NmMtZmMxOS00Y2QzLTg4MjEtMTZmZDNjYTUwZDMzIiwicyI6Ik56azRNMlU0TWpVdFl6RTBaQzAwTWpsakxXRmpOall0WkRBM09EWmpZVFJqTldNeiJ9
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - backend
 
