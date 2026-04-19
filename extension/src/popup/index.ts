@@ -186,14 +186,57 @@ function renderLoading(): void {
 
 function renderEmpty(): void {
   const content = document.getElementById("content");
-  if (content) {
-    content.innerHTML = `
-      <div class="state-empty">
-        <div style="font-size: 28px; margin-bottom: 12px">🔍</div>
-        Navigate to a job listing on LinkedIn, Indeed, or Hiring.cafe to see your fit score.
-      </div>
-    `;
-  }
+  if (!content) return;
+
+  content.innerHTML = `
+    <div class="state-empty">
+      <div style="font-size: 28px; margin-bottom: 12px">🔍</div>
+      Navigate to a job listing on LinkedIn, Indeed, or Hiring.cafe to see your fit score.
+    </div>
+  `;
+
+  // Always show the side panel button — useful on application pages (Greenhouse,
+  // Lever, Ashby, or any edge-case site) where there's no job score.
+  if (!chrome.sidePanel) return;
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs[0];
+    if (!tab?.id) return;
+
+    chrome.storage.local.get("sidepanel_auto_open", (data) => {
+      const autoOpen = data["sidepanel_auto_open"] !== false;
+      const tabId = tab.id!;
+
+      const wrapper = document.createElement("div");
+      wrapper.style.cssText = "padding: 0 16px 16px; display: flex; flex-direction: column; gap: 6px;";
+      wrapper.innerHTML = `
+        <button id="btn-open-sidepanel-empty" style="
+          background: #0c2240; border: 1px solid #1e4d8c; color: #38bdf8;
+          border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600;
+          cursor: pointer; width: 100%; text-align: left; transition: opacity 0.15s;
+        ">📋 Open Application Assistant</button>
+        <label style="
+          display: flex; align-items: center; gap: 8px;
+          font-size: 11px; color: #475569; cursor: pointer; padding: 2px 0;
+        ">
+          <input type="checkbox" id="toggle-auto-open-empty" ${autoOpen ? "checked" : ""} style="accent-color:#38bdf8;cursor:pointer;" />
+          Auto-open on Greenhouse / Lever / Ashby pages
+        </label>
+      `;
+      content.appendChild(wrapper);
+
+      document.getElementById("btn-open-sidepanel-empty")?.addEventListener("click", () => {
+        chrome.sidePanel.open({ tabId }).catch((err: Error) => {
+          console.warn("[JobScout Popup] sidePanel.open failed:", err.message);
+        });
+        window.close();
+      });
+
+      const toggle = document.getElementById("toggle-auto-open-empty") as HTMLInputElement | null;
+      toggle?.addEventListener("change", () => {
+        chrome.storage.local.set({ sidepanel_auto_open: toggle.checked });
+      });
+    });
+  });
 }
 
 function renderNotSignedIn(): void {
@@ -389,6 +432,7 @@ function renderScore(
       </button>
       ${buildReachButtonHtml(isReach)}
     </div>
+    <div id="app-assist-bar" style="padding: 6px 16px 0; display: flex; flex-direction: column; gap: 6px;"></div>
     ${buildBulkBarHtml(tabUrl)}
     ${buildSection("Direct matches", "#4ade80", result.direct_matches.length, directMatchesHtml, true)}
     ${buildSection("Transferable", "#facc15", result.transferable.length, transferableHtml)}
@@ -418,6 +462,45 @@ function showScore(stored: StoredScore, tabUrl: string, isApplied: boolean, jobI
   chrome.storage.local.get(`reach_jobid_${jobId}`, (data) => {
     const isReach = !!data[`reach_jobid_${jobId}`];
     renderScore(stored, tabUrl, isApplied, jobId, isReach);
+  });
+}
+
+function renderAppAssistBar(tabId: number): void {
+  const bar = document.getElementById("app-assist-bar");
+  if (!bar) return;
+
+  // Only show if sidePanel API is available
+  if (!chrome.sidePanel) return;
+
+  chrome.storage.local.get("sidepanel_auto_open", (data) => {
+    const autoOpen = data["sidepanel_auto_open"] !== false; // default true
+
+    bar.innerHTML = `
+      <button id="btn-open-sidepanel" style="
+        background: #0c2240; border: 1px solid #1e4d8c; color: #38bdf8;
+        border-radius: 6px; padding: 7px 14px; font-size: 12px; font-weight: 600;
+        cursor: pointer; width: 100%; text-align: left; transition: opacity 0.15s;
+      ">📋 Open Application Assistant</button>
+      <label style="
+        display: flex; align-items: center; gap: 8px;
+        font-size: 11px; color: #475569; cursor: pointer; padding: 2px 0;
+      ">
+        <input type="checkbox" id="toggle-auto-open" ${autoOpen ? "checked" : ""} style="accent-color:#38bdf8;cursor:pointer;" />
+        Auto-open on Greenhouse / Lever / Ashby pages
+      </label>
+    `;
+
+    document.getElementById("btn-open-sidepanel")?.addEventListener("click", () => {
+      chrome.sidePanel.open({ tabId }).catch((err: Error) => {
+        console.warn("[JobScout Popup] sidePanel.open failed:", err.message);
+      });
+      window.close();
+    });
+
+    const toggle = document.getElementById("toggle-auto-open") as HTMLInputElement | null;
+    toggle?.addEventListener("change", () => {
+      chrome.storage.local.set({ sidepanel_auto_open: toggle.checked });
+    });
   });
 }
 
@@ -524,12 +607,14 @@ function attachBulkListeners(tabId: number): void {
 
 function attachActionListeners(tabUrl: string, jobId: string, jobTitle = "", company = ""): void {
   // Wire up bulk listeners if on hiring.cafe
-  if (tabUrl.includes("hiring.cafe")) {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      if (tab?.id) attachBulkListeners(tab.id);
-    });
-  }
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs[0];
+    if (!tab?.id) return;
+    if (tabUrl.includes("hiring.cafe")) {
+      attachBulkListeners(tab.id);
+    }
+    renderAppAssistBar(tab.id);
+  });
 
   const reanalyzeBtn = document.getElementById("btn-reanalyze");
   if (reanalyzeBtn) {

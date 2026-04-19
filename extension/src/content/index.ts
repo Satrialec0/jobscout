@@ -13,6 +13,9 @@ import {
   extractIndeedCardJobId,
 } from "./extractors/indeed";
 import { extractHiringCafe, isHiringCafePage } from "./extractors/hiring-cafe";
+import { extractGreenhouse, isGreenhousePage } from "./extractors/greenhouse";
+import { extractLever, isLeverPage } from "./extractors/lever";
+import { extractAshby, isAshbyPage } from "./extractors/ashby";
 import { JobExtraction } from "./extractors/types";
 
 interface SalaryEstimate {
@@ -45,10 +48,11 @@ let analysisInProgress = false;
 let lastAnalyzedJobId = "";
 let resetModalWatcher: (() => void) | null = null;
 
-function detectSite(url: string): "linkedin" | "indeed" | "hiring-cafe" | null {
+function detectSite(url: string): "linkedin" | "indeed" | "hiring-cafe" | "greenhouse" | null {
   if (isLinkedInJobPage(url)) return "linkedin";
   if (isIndeedJobPage(url)) return "indeed";
   if (isHiringCafePage(url)) return "hiring-cafe";
+  if (isGreenhousePage(url)) return "greenhouse";
   return null;
 }
 
@@ -1617,6 +1621,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 initUrlWatcher();
 initCardObserver();
 initHiringCafeModalWatcher();
+initAtsDetection(isGreenhousePage, "Greenhouse", "div.field, h1", extractGreenhouse);
+initAtsDetection(isLeverPage, "Lever", ".application-question, .posting-name, h2", extractLever);
+initAtsDetection(isAshbyPage, "Ashby", "h1, form", extractAshby);
 onUrlChange(window.location.href);
 
 // Sync hiring.cafe session cookies to backend for background scraper
@@ -1720,6 +1727,52 @@ if (window.location.hostname === 'hiring.cafe') {
       _lastSearchState = null;
     }
   }, 750);
+}
+
+// ── Application page detection (Greenhouse, Lever, Ashby) ────────────────────
+
+/**
+ * Generic ATS page detector. Waits for a DOM element matching `readySelector`
+ * (or times out), then calls `extract` and sends GREENHOUSE_PAGE_DETECTED so
+ * the background can cache the extraction and auto-open the side panel.
+ */
+function initAtsDetection(
+  isPage: (url: string) => boolean,
+  atsName: string,
+  readySelector: string,
+  extract: () => { jobTitle: string; company: string; questions: unknown[] },
+): void {
+  if (!isPage(window.location.href)) return;
+
+  console.log(`[JobScout] ${atsName} page detected:`, window.location.href);
+
+  let attempts = 0;
+  const maxAttempts = 20;
+
+  const tryExtract = () => {
+    attempts++;
+    const ready = document.querySelector(readySelector) || attempts >= maxAttempts;
+
+    if (ready) {
+      const extraction = extract();
+      console.log(
+        `[JobScout] ${atsName} extraction:`,
+        extraction.jobTitle,
+        "@",
+        extraction.company,
+        `(${extraction.questions.length} questions)`,
+      );
+      chrome.runtime.sendMessage({
+        type: "GREENHOUSE_PAGE_DETECTED",
+        payload: extraction,
+      });
+    } else {
+      setTimeout(tryExtract, 500);
+    }
+  };
+
+  // Give the page a moment to render before first attempt
+  setTimeout(tryExtract, 800);
 }
 
 // Re-evaluate all visible cards when the active profile changes

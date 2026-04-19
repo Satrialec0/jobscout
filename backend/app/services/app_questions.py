@@ -24,7 +24,7 @@ def _build_system_prompt(resume_text: str, instructions: str) -> str:
 CANDIDATE RESUME:
 {resume_section}
 
-ANALYSIS INSTRUCTIONS:
+APPLICATION ASSISTANT INSTRUCTIONS:
 {instructions}"""
 
 

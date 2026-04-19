@@ -20,6 +20,7 @@ class UserProfile(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     resume_text: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     instructions: Mapped[str] = mapped_column(Text, nullable=False, default=DEFAULT_INSTRUCTIONS)
+    app_assist_instructions: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

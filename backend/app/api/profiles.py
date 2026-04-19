@@ -101,6 +101,8 @@ def update_profile(
         profile.resume_text = body.resume_text
     if body.instructions is not None:
         profile.instructions = body.instructions
+    if body.app_assist_instructions is not None:
+        profile.app_assist_instructions = body.app_assist_instructions
     db.commit()
     db.refresh(profile)
     return profile

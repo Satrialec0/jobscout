@@ -13,6 +13,7 @@ module.exports = {
     interview: "./src/interview/index.ts",
     login: "./src/login/index.ts",
     "app-assist": "./src/app-assist/index.ts",
+    sidepanel: "./src/sidepanel/index.ts",
   },
   output: {
     path: path.resolve(__dirname, "dist"),

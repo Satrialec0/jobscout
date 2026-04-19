@@ -94,9 +94,9 @@ function JobCard({ job }: { job: ScrapedJob }) {
                 <div>
                   <p className="text-xs text-muted font-medium mb-1">Direct matches</p>
                   <div className="flex flex-wrap gap-1">
-                    {analysis.direct_matches.map((m) => (
-                      <span key={m} className="bg-accent-dim text-accent text-xs px-2 py-0.5 rounded">
-                        {m}
+                    {analysis.direct_matches.map((m, i) => (
+                      <span key={i} className="bg-accent-dim text-accent text-xs px-2 py-0.5 rounded">
+                        {m.item}
                       </span>
                     ))}
                   </div>
@@ -106,9 +106,9 @@ function JobCard({ job }: { job: ScrapedJob }) {
                 <div>
                   <p className="text-xs text-muted font-medium mb-1">Gaps</p>
                   <div className="flex flex-wrap gap-1">
-                    {analysis.gaps.map((g) => (
-                      <span key={g} className="bg-red-950 text-danger text-xs px-2 py-0.5 rounded">
-                        {g}
+                    {analysis.gaps.map((g, i) => (
+                      <span key={i} className="bg-red-950 text-danger text-xs px-2 py-0.5 rounded">
+                        {g.item}
                       </span>
                     ))}
                   </div>

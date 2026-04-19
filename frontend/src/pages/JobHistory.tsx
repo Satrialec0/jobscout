@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listHistory, patchStatus, getStats } from "@/api/history";
+import { listHistory, patchStatus, getStats, getJobDetail } from "@/api/history";
 import { listProfiles, getActiveProfile } from "@/api/profiles";
 import { ScoreRing } from "@/components/ScoreRing";
 import { StatusPill } from "@/components/StatusPill";
 import { Badge } from "@/components/ui/badge";
-import type { AppStatus, JobHistoryItem } from "@/types";
+import type { AppStatus, JobHistoryItem, ScoreCategory } from "@/types";
 import type { HistoryStats } from "@/api/history";
 
 const PAGE_SIZE = 25;
@@ -188,13 +188,18 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
   const [expanded, setExpanded] = useState(false);
   const queryClient = useQueryClient();
 
+  const { data: detail, isFetching: detailLoading } = useQuery({
+    queryKey: ["job-detail", job.id],
+    queryFn: () => getJobDetail(job.id),
+    enabled: expanded,
+    staleTime: Infinity,
+  });
+
   const statusMutation = useMutation({
     mutationFn: (next: AppStatus) => patchStatus(job.id, next),
-    onSuccess: (updated) => {
-      queryClient.setQueryData<JobHistoryItem[]>(
-        ["history"],
-        (prev) => prev?.map((j) => (j.id === updated.id ? updated : j)),
-      );
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["history"] });
+      queryClient.invalidateQueries({ queryKey: ["history-stats"] });
     },
   });
 
@@ -255,17 +260,27 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
       </tr>
       {expanded && (
         <tr className="bg-surface/40 border-b border-border">
-          <td colSpan={9} className="px-4 py-4 space-y-3">
+          <td colSpan={9} className="px-4 py-4 space-y-4">
             <p className="text-sm text-text italic">{job.one_line_verdict}</p>
+
+            {/* Analysis breakdown */}
             <div className="flex flex-wrap gap-4 text-sm">
               {job.direct_matches.length > 0 && (
                 <div>
                   <p className="text-xs text-muted font-medium mb-1">Direct matches</p>
                   <div className="flex flex-wrap gap-1">
-                    {job.direct_matches.map((m) => (
-                      <Badge key={m} variant="outline" className="border-accent text-accent text-xs">
-                        {m}
-                      </Badge>
+                    {job.direct_matches.map((m: ScoreCategory, i) => (
+                      <Badge key={i} variant="outline" className="border-accent text-accent text-xs" title={m.detail}>{m.item}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {job.transferable.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted font-medium mb-1">Transferable</p>
+                  <div className="flex flex-wrap gap-1">
+                    {job.transferable.map((t: ScoreCategory, i) => (
+                      <Badge key={i} variant="outline" className="border-blue-400 text-blue-400 text-xs" title={t.detail}>{t.item}</Badge>
                     ))}
                   </div>
                 </div>
@@ -274,10 +289,8 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
                 <div>
                   <p className="text-xs text-muted font-medium mb-1">Gaps</p>
                   <div className="flex flex-wrap gap-1">
-                    {job.gaps.map((g) => (
-                      <Badge key={g} variant="outline" className="border-danger text-danger text-xs">
-                        {g}
-                      </Badge>
+                    {job.gaps.map((g: ScoreCategory, i) => (
+                      <Badge key={i} variant="outline" className="border-danger text-danger text-xs" title={g.detail}>{g.item}</Badge>
                     ))}
                   </div>
                 </div>
@@ -286,13 +299,35 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
                 <div>
                   <p className="text-xs text-muted font-medium mb-1">Red flags</p>
                   <div className="flex flex-wrap gap-1">
-                    {job.red_flags.map((f) => (
-                      <Badge key={f} variant="outline" className="border-warning text-warning text-xs">
-                        {f}
-                      </Badge>
+                    {job.red_flags.map((f, i) => (
+                      <Badge key={i} variant="outline" className="border-warning text-warning text-xs">{f}</Badge>
                     ))}
                   </div>
                 </div>
+              )}
+              {job.green_flags.length > 0 && (
+                <div>
+                  <p className="text-xs text-muted font-medium mb-1">Green flags</p>
+                  <div className="flex flex-wrap gap-1">
+                    {job.green_flags.map((f, i) => (
+                      <Badge key={i} variant="outline" className="border-accent/50 text-accent/70 text-xs">{f}</Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Job description — lazy loaded */}
+            <div>
+              <p className="text-xs text-muted font-medium mb-1">Job description</p>
+              {detailLoading ? (
+                <p className="text-xs text-muted">Loading…</p>
+              ) : detail?.job_description ? (
+                <div className="max-h-72 overflow-y-auto rounded border border-border bg-bg p-3 text-xs text-text whitespace-pre-wrap leading-relaxed">
+                  {detail.job_description}
+                </div>
+              ) : (
+                <p className="text-xs text-muted">No job description stored.</p>
               )}
             </div>
           </td>

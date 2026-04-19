@@ -11,6 +11,12 @@ const BACKEND_URL = process.env.BACKEND_URL;
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[JobScout] Extension installed");
+  // Default: auto-open side panel on Greenhouse pages
+  chrome.storage.local.get("sidepanel_auto_open", (data) => {
+    if (data["sidepanel_auto_open"] === undefined) {
+      chrome.storage.local.set({ sidepanel_auto_open: true });
+    }
+  });
 });
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -325,7 +331,7 @@ chrome.runtime.onSuspend.addListener(() => {
   flushTargetSignals();
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "LOGIN") {
     fetch(`${BACKEND_URL}/auth/login`, {
       method: "POST",
@@ -686,6 +692,42 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: false, searches: [] });
       }
     });
+    return true;
+  }
+
+  if (message.type === "UPDATE_PROFILE_INSTRUCTIONS") {
+    getAuthHeaders().then((headers) => {
+      fetch(`${BACKEND_URL}/profiles/${message.profileId as number}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ app_assist_instructions: message.appAssistInstructions }),
+      }).catch((err) => console.warn("[JobScout BG] Profile instructions sync failed:", err));
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (message.type === "GREENHOUSE_PAGE_DETECTED") {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+
+    // Cache extraction in session storage keyed by tabId
+    chrome.storage.session.set({
+      [`greenhouse_extraction_${tabId}`]: message.payload,
+    });
+    console.log("[JobScout BG] Greenhouse extraction cached for tab:", tabId);
+
+    // Auto-open side panel if enabled
+    chrome.storage.local.get("sidepanel_auto_open", (data) => {
+      const autoOpen = data["sidepanel_auto_open"] !== false; // default true
+      if (autoOpen) {
+        chrome.sidePanel.open({ tabId }).catch((err: Error) => {
+          console.warn("[JobScout BG] sidePanel.open failed:", err.message);
+        });
+      }
+    });
+
+    sendResponse({ ok: true });
     return true;
   }
 

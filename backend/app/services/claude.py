@@ -148,7 +148,11 @@ JOB DESCRIPTION:
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1500,
-            system=system_prompt,
+            system=[{
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }],
             messages=[{"role": "user", "content": user_message}]
         )
     except RateLimitError as e:
@@ -162,9 +166,12 @@ JOB DESCRIPTION:
         raise ValueError(f"Claude API error {e.status_code}: {e.message}") from e
 
     logger.info(
-        "Claude response received, stop_reason: %s, tokens used: %s",
+        "Claude response received, stop_reason: %s, input: %s, output: %s, cache_read: %s, cache_write: %s",
         message.stop_reason,
-        message.usage.input_tokens + message.usage.output_tokens
+        message.usage.input_tokens,
+        message.usage.output_tokens,
+        getattr(message.usage, "cache_read_input_tokens", 0),
+        getattr(message.usage, "cache_creation_input_tokens", 0),
     )
 
     return _parse_response(message.content[0].text, listed_salary)

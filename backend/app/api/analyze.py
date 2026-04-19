@@ -540,7 +540,7 @@ async def generate_app_question_endpoint(
             request,
             api_key=api_key,
             resume_text=profile.resume_text or "",
-            instructions=profile.instructions,
+            instructions=profile.app_assist_instructions or "",
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))

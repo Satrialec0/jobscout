@@ -8,12 +8,14 @@ class ProfileCreate(BaseModel):
     name: str = Field(..., max_length=100)
     resume_text: Optional[str] = None
     instructions: str = DEFAULT_INSTRUCTIONS
+    app_assist_instructions: Optional[str] = None
 
 
 class ProfileUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     resume_text: Optional[str] = None
     instructions: Optional[str] = None
+    app_assist_instructions: Optional[str] = None
 
 
 class ProfileResponse(BaseModel):
@@ -21,6 +23,7 @@ class ProfileResponse(BaseModel):
     name: str
     resume_text: Optional[str]
     instructions: str
+    app_assist_instructions: Optional[str]
     is_active: bool
     created_at: datetime
 

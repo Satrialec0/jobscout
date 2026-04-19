@@ -20,6 +20,11 @@ export interface SalaryEstimate {
   assessment: string | null;
 }
 
+export interface ScoreCategory {
+  item: string;
+  detail: string;
+}
+
 export interface JobHistoryItem {
   id: number;
   job_title: string;
@@ -27,9 +32,9 @@ export interface JobHistoryItem {
   fit_score: number;
   should_apply: boolean;
   one_line_verdict: string;
-  direct_matches: string[];
-  transferable: string[];
-  gaps: string[];
+  direct_matches: ScoreCategory[];
+  transferable: ScoreCategory[];
+  gaps: ScoreCategory[];
   red_flags: string[];
   green_flags: string[];
   salary_estimate: SalaryEstimate | null;
@@ -76,6 +81,9 @@ export interface SavedSearch {
 export interface Profile {
   id: number;
   name: string;
+  instructions: string;
+  resume_text: string | null;
+  app_assist_instructions: string | null;
   is_active: boolean;
   created_at: string;
 }

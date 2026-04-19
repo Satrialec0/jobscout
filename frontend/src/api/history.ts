@@ -55,3 +55,14 @@ export const patchStatus = (dbId: number, status: AppStatus) =>
     method: "PATCH",
     body: JSON.stringify({ status }),
   });
+
+export interface JobDetail {
+  db_id: number;
+  job_title: string;
+  company: string;
+  job_description: string | null;
+  url: string | null;
+}
+
+export const getJobDetail = (dbId: number) =>
+  apiFetch<JobDetail>(`/api/v1/job/${dbId}`);

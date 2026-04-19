@@ -3,15 +3,21 @@
   "name": "JobScout",
   "version": "0.1.0",
   "description": "Real-time job fit scoring as you browse",
-  "permissions": ["activeTab", "storage", "tabs", "windows", "cookies"],
+  "permissions": ["activeTab", "storage", "tabs", "windows", "cookies", "sidePanel"],
   "host_permissions": [
     "https://www.linkedin.com/*",
     "https://www.indeed.com/*",
     "https://indeed.com/*",
     "https://hiring.cafe/*",
+    "https://*.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://app.ashbyhq.com/*",
     "http://127.0.0.1:8001/*",
     "http://localhost:8001/*"
   ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -26,6 +32,16 @@
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://app.ashbyhq.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
@@ -34,7 +50,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["dashboard.html", "interview.html", "login.html", "app-assist.html"],
+      "resources": ["dashboard.html", "interview.html", "login.html", "app-assist.html", "sidepanel.html"],
       "matches": ["<all_urls>"]
     }
   ]
