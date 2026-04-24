@@ -714,6 +714,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Cache extraction in session storage keyed by tabId
     chrome.storage.session.set({
       [`greenhouse_extraction_${tabId}`]: message.payload,
+    }, () => {
+      // Notify side panel to reinitialize in case it's already open from a previous page
+      chrome.runtime.sendMessage({ type: "SIDEPANEL_REINIT" }).catch(() => {});
     });
     console.log("[JobScout BG] Greenhouse extraction cached for tab:", tabId);
 

@@ -39,6 +39,7 @@ interface ActiveJob {
 }
 
 let activeJob: ActiveJob | null = null;
+let activeJobIsGuess = false; // true when activeJob is a most-recent fallback, not a real match
 let activeProfileId: number | null = null;
 let activeProfileInstructions: string | null = null;
 let ghExtraction: GreenhouseExtraction | null = null;
@@ -112,14 +113,25 @@ async function matchJobFromCache(): Promise<void> {
   if (scores.length === 0) return;
 
   if (ghExtraction) {
-    const ghTitle = ghExtraction.jobTitle.toLowerCase();
-    const ghCompany = ghExtraction.company.toLowerCase();
+    const ghTitle = ghExtraction.jobTitle.toLowerCase().trim();
+    const ghCompany = ghExtraction.company.toLowerCase().trim();
 
-    // Try exact title+company match first
+    const titlesOverlap = (a: string, b: string): boolean => {
+      const prefix = Math.min(a.length, b.length, 20);
+      if (prefix < 4) return false;
+      return b.includes(a.slice(0, prefix)) || a.includes(b.slice(0, prefix));
+    };
+    const companiesOverlap = (stored: string, gh: string): boolean => {
+      if (gh.length < 3) return false;
+      const prefix = Math.min(stored.length, gh.length, 12);
+      return stored.includes(gh.slice(0, prefix)) || gh.includes(stored.slice(0, prefix));
+    };
+
+    // Try title+company match first
     const exact = scores.find(
       (s) =>
-        s.stored.jobTitle.toLowerCase().includes(ghTitle.slice(0, 20)) &&
-        s.stored.company.toLowerCase().includes(ghCompany.slice(0, 10)),
+        titlesOverlap(ghTitle, s.stored.jobTitle.toLowerCase()) &&
+        companiesOverlap(s.stored.company.toLowerCase(), ghCompany),
     );
 
     if (exact) {
@@ -129,7 +141,7 @@ async function matchJobFromCache(): Promise<void> {
 
     // Try company-only match → take most recent
     const companyMatch = scores.find(
-      (s) => ghCompany.length > 2 && s.stored.company.toLowerCase().includes(ghCompany.slice(0, 10)),
+      (s) => companiesOverlap(s.stored.company.toLowerCase(), ghCompany),
     );
     if (companyMatch) {
       activeJob = { jobId: companyMatch.jobId, jobTitle: companyMatch.stored.jobTitle, company: companyMatch.stored.company, score: companyMatch.stored };
@@ -137,9 +149,10 @@ async function matchJobFromCache(): Promise<void> {
     }
   }
 
-  // Fallback: most recent cached score
+  // Fallback: most recent cached score (mark as guess so we upgrade if a better match arrives)
   const first = scores[0];
   activeJob = { jobId: first.jobId, jobTitle: first.stored.jobTitle, company: first.stored.company, score: first.stored };
+  activeJobIsGuess = true;
 }
 
 // ── Render ─────────────────────────────────────────────────────────────────────
@@ -665,14 +678,81 @@ async function generateAnswer(question: string): Promise<string> {
   return resp.data?.answer ?? "";
 }
 
-// ── Boot ───────────────────────────────────────────────────────────────────────
+// ── Reinit (called when a new Greenhouse page fires or a new score is stored) ───
 
-init().catch((err) => {
-  console.error("[JobScout] Side panel init failed:", err);
-  const content = $("main-content");
-  if (content) {
-    content.innerHTML = `<div class="error-msg">Failed to load: ${err.message}</div>`;
+let isReiniting = false;
+
+async function reinit(): Promise<void> {
+  if (isReiniting) return;
+  isReiniting = true;
+  try {
+    activeJob = null;
+    activeJobIsGuess = false;
+    ghExtraction = null;
+    activeProfileId = null;
+    activeProfileInstructions = null;
+    qaCounter = 0;
+
+    const content = document.getElementById("main-content");
+    if (content) content.innerHTML = '<div class="loading-msg" id="loading-msg">Loading…</div>';
+
+    const headerTitle = document.getElementById("header-title");
+    const headerCompany = document.getElementById("header-company");
+    const scoreBadge = document.getElementById("score-badge");
+    if (headerTitle) headerTitle.textContent = "Application Assistant";
+    if (headerCompany) headerCompany.textContent = "";
+    if (scoreBadge) scoreBadge.style.display = "none";
+
+    await init();
+  } finally {
+    isReiniting = false;
+  }
+}
+
+// Re-init when background signals a new ATS page was detected (handles page-refresh case)
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "SIDEPANEL_REINIT") {
+    reinit().catch(() => {});
   }
 });
+
+// Re-run matching when a new score is stored (handles the race where analysis
+// finishes after the side panel already opened with a guess)
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (!activeJobIsGuess && activeJob) return; // already have a good match
+  const hasNewScore = Object.keys(changes).some(
+    (k) => k.startsWith("score_jobid_") && changes[k].newValue,
+  );
+  if (hasNewScore) reinit().catch(() => {});
+});
+
+// ── Polling fallback ─────────────────────────────────────────────────────────
+// When the side panel opens before analysis completes, schedule retries so the
+// panel upgrades to the correct job once the score lands in storage.
+
+function scheduleGuessRefreshes(): void {
+  const delays = [2000, 5000, 10000, 20000, 40000];
+  for (const delay of delays) {
+    setTimeout(() => {
+      if (!activeJobIsGuess) return; // already upgraded
+      reinit().catch(() => {});
+    }, delay);
+  }
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+
+init()
+  .then(() => {
+    if (activeJobIsGuess) scheduleGuessRefreshes();
+  })
+  .catch((err) => {
+    console.error("[JobScout] Side panel init failed:", err);
+    const content = $("main-content");
+    if (content) {
+      content.innerHTML = `<div class="error-msg">Failed to load: ${err.message}</div>`;
+    }
+  });
 
 export {};

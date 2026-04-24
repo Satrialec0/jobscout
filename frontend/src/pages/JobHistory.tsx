@@ -197,11 +197,15 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
 
   const statusMutation = useMutation({
     mutationFn: (next: AppStatus) => patchStatus(job.id, next),
-    onSuccess: () => {
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["history"] });
       queryClient.invalidateQueries({ queryKey: ["history-stats"] });
     },
   });
+
+  const displayStatus = statusMutation.isPending
+    ? (statusMutation.variables as AppStatus)
+    : (job.status as AppStatus);
 
   return (
     <>
@@ -233,7 +237,7 @@ function HistoryRow({ job }: { job: JobHistoryItem }) {
         </td>
         <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
           <StatusPill
-            status={job.status as AppStatus}
+            status={displayStatus}
             onClick={(next) => statusMutation.mutate(next)}
             disabled={statusMutation.isPending}
           />
